@@ -2,8 +2,8 @@
 """Build a drag-to-Applications DMG from an already verified release binary.
 
 The bundle is intentionally not Developer ID signed: no identity is configured.
-Keep the executable unchanged, including its existing linker signature, so the
-raw-binary updater can continue replacing it without invalidating a bundle seal.
+Keep the executable unchanged, including its existing linker signature.
+Version 0.3.1 explicitly blocks bundle self-update; users replace the app via DMG.
 """
 import argparse
 import hashlib
@@ -74,16 +74,18 @@ def main():
         (content / '安装说明.txt').write_text(
             '将 PeerCarry.app 拖到 Applications，然后从应用程序打开。\n'
             '启动后图标在屏幕顶部菜单栏，不显示主窗口。需要时可复制到用户自己的 ~/Applications。\n'
-            '请勿直接从只读磁盘映像启动，否则无法自动更新。升级前先退出旧版本。\n'
+            '请勿直接从只读磁盘映像启动。升级前先退出旧版本。\n'
             '本包尚未取得 Apple Developer ID 签名和公证。若提示无法验证开发者，\n'
             '请确认来自官方发布页，再按 Apple 官方说明在系统设置 > 隐私与安全性中允许打开。\n'
             'https://support.apple.com/102445\n'
             '不要关闭系统安全保护。若提示损坏或仍打不开，请反馈完整错误。\n'
-            '剪贴板、文件传输及自动更新包含在桌面版中；命令行/AI Hook 请另下载完整 tar.gz 包。\n'
+            '剪贴板和文件传输包含在桌面版中；命令行/AI Hook 请另下载完整 tar.gz 包。\n'
+            '本版支持自动检查新版，但 .app 尚不支持应用内替换升级；请下载新版 DMG，退出后替换应用。\n'
             '卸载时退出应用并移到废纸篓，配置、历史和下载文件保留。\n\n'
             'Drag PeerCarry.app to Applications, then open the installed app.\n'
             'Look for its menu-bar icon. Do not run directly from the read-only DMG.\n'
-            'Not Developer ID signed or notarized. macOS 11 or newer.\n', encoding='utf-8')
+            'Not Developer ID signed or notarized. macOS 11 or newer.\n'
+            'App-bundle self-update is not supported in v0.3.1; replace the app using a newer DMG.\n', encoding='utf-8')
         run('hdiutil', 'create', '-volname', 'PeerCarry', '-srcfolder', str(content),
             '-format', 'UDZO', '-ov', str(dmg))
         run('hdiutil', 'verify', str(dmg))

@@ -1,6 +1,7 @@
 # PeerCarry · 随传
 
 [下载安装包](https://github.com/juliohuang/peercarry/releases/latest)：Windows x64、Linux x64、macOS Intel / Apple Silicon。
+**macOS 推荐 DMG**：Apple Silicon 选 `macOS-arm64.dmg`，Intel 选 `macOS-x86_64.dmg`，拖入 Applications 后打开，图标显示在菜单栏。支持 macOS 11 及以上；尚无 Apple Developer ID 签名及公证。v0.3.1 的 `.app` 能检查新版，但暂不支持应用内替换升级，请用新版 DMG 手动替换；CLI/AI Hook 仍使用完整 tar.gz 包。
 **Windows 推荐下载 `PeerCarry-版本号-windows-x64-Setup.exe`，双击安装，无需 Rust 或 PowerShell 命令。**
 默认 Compact（精简）模式只安装托盘程序；需要命令行或 AI Hook 时选 Full。可选开机启动、桌面快捷方式，支持系统设置中卸载，保留用户配置和历史。
 安装包将可选 CLI 一并压缩，离线安装也可选择完整模式。ZIP 留给便携使用和高级用户；旧版 CLI 不会因选择精简模式被删除。

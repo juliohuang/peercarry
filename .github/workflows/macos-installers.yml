@@ -63,4 +63,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           VERSION: ${{ inputs.version }}
-        run: gh release upload "$VERSION" dist/*
+        # Packaging-only reruns may correct installer documentation. Original
+        # raw binaries, signed update manifests and their checksums stay intact.
+        run: gh release upload "$VERSION" dist/* --clobber
