@@ -97,6 +97,12 @@ jobs:
           cp "$tray" "dist/peercarry-tray-${TRIPLE}${EXTENSION}"
           cp "$cli" "dist/peercarry-${TRIPLE}${EXTENSION}"
           python3 scripts/release/package.py --version "$VERSION" --triple "$TRIPLE" --platform "$PLATFORM" --tray "$tray" --cli "$cli" --out-dir dist
+      - name: Build macOS desktop installer
+        if: runner.os == 'macOS'
+        env:
+          VERSION: ${{ github.ref_name }}
+          TRIPLE: ${{ matrix.triple }}
+        run: python3 scripts/release/package-macos.py --version "$VERSION" --triple "$TRIPLE" --tray "target/$TRIPLE/release/peercarry-tray" --out-dir dist
       - name: Build Windows desktop installer
         if: runner.os == 'Windows'
         shell: pwsh

@@ -1,0 +1,66 @@
+name: Package existing macOS release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing stable release tag
+        required: true
+        default: v0.3.1
+permissions:
+  contents: read
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            triple: aarch64-apple-darwin
+          - runner: macos-15-intel
+            triple: x86_64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Fetch and verify released binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          TRIPLE: ${{ matrix.triple }}
+        run: |
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          mkdir input
+          gh release download "$VERSION" --pattern "peercarry-tray-$TRIPLE" --pattern SHA256SUMS.txt --dir input
+          cd input
+          grep "  peercarry-tray-$TRIPLE$" SHA256SUMS.txt > selected.sha256
+          test -s selected.sha256
+          shasum -a 256 -c selected.sha256
+      - name: Build and verify disk image
+        env:
+          VERSION: ${{ inputs.version }}
+          TRIPLE: ${{ matrix.triple }}
+        run: python scripts/release/package-macos.py --version "$VERSION" --triple "$TRIPLE" --tray "input/peercarry-tray-$TRIPLE" --out-dir dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dmg-${{ matrix.triple }}
+          path: dist/
+          if-no-files-found: error
+  publish:
+    needs: package
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dmg-*
+          merge-multiple: true
+          path: dist
+      - name: Add verified installers to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+        run: gh release upload "$VERSION" dist/*
