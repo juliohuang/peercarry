@@ -11,6 +11,7 @@
 // The tray owns its GUI event loop; Windows must not allocate a console for it.
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
+mod auto_update;
 mod i18n;
 mod update_install;
 
@@ -1139,6 +1140,7 @@ fn main() -> Result<()> {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         }
     });
+    rt.spawn(auto_update::run(proxy.clone()));
     let dialog_rt = rt.clone();
     rt.spawn(command_loop(engine, rx, proxy.clone()));
 

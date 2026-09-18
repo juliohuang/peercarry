@@ -1,5 +1,9 @@
 # PeerCarry · 随传
 
+[下载安装包](https://github.com/juliohuang/peercarry/releases/latest)：Windows x64、Linux x64、macOS Intel / Apple Silicon。
+从 v0.3.1 起，运行托盘后约一分钟自动检查更新，之后默认每六小时检查；发现新版时提醒，通过托盘「更新并重启」确认安装。
+设置页可关闭自动检查或调整周期。签名与校验失败不会安装，启动失败会尝试回滚。CLI 守护进程不执行托盘自动检查，独立 CLI 请用完整安装包更新。
+
 跨 Tailscale tailnet 的**手动**剪贴板桥接工具。Rust 编写，macOS 菜单栏 / Windows 系统托盘 / Linux 命令行。
 
 ---

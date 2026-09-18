@@ -61,10 +61,12 @@ pub struct MobileDevice {
     pub token: String,
 }
 
-/// Read-only update endpoints and the trusted release signing public key.
+/// Update scheduling, endpoints, and the trusted release signing public key.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(from = "UpdateSettingsInput")]
 pub struct UpdateSettings {
+    pub auto_check: bool,
+    pub check_interval_hours: u64,
     pub source: String,
     pub domestic_url: String,
     pub github_url: String,
@@ -76,6 +78,8 @@ impl Default for UpdateSettings {
     fn default() -> Self {
         let domestic = option_env!("PEERCARRY_UPDATE_DOMESTIC_URL").unwrap_or("");
         Self {
+            auto_check: true,
+            check_interval_hours: 6,
             source: if domestic.is_empty() {
                 "github"
             } else {
@@ -94,7 +98,59 @@ impl Default for UpdateSettings {
     }
 }
 
+// Keep missing trust material empty until the selected source is known. In
+// particular, a custom URL must never inherit the official signing key.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct UpdateSettingsInput {
+    auto_check: Option<bool>,
+    check_interval_hours: Option<u64>,
+    source: Option<String>,
+    domestic_url: Option<String>,
+    github_url: String,
+    custom_url: String,
+    public_key: String,
+}
+
+impl From<UpdateSettingsInput> for UpdateSettings {
+    fn from(input: UpdateSettingsInput) -> Self {
+        let defaults = Self::default();
+        let mut settings = Self {
+            auto_check: input.auto_check.unwrap_or(defaults.auto_check),
+            check_interval_hours: input
+                .check_interval_hours
+                .unwrap_or(defaults.check_interval_hours),
+            source: input.source.unwrap_or(defaults.source.clone()),
+            domestic_url: input.domestic_url.unwrap_or(defaults.domestic_url.clone()),
+            github_url: input.github_url,
+            custom_url: input.custom_url,
+            public_key: input.public_key,
+        };
+        settings.restore_official_defaults(&defaults);
+        settings
+    }
+}
+
 impl UpdateSettings {
+    /// Bound the polling interval even for hand-edited configuration files.
+    pub fn check_interval_hours(&self) -> u64 {
+        self.check_interval_hours.clamp(1, 168)
+    }
+
+    fn restore_official_defaults(&mut self, defaults: &Self) {
+        if self.source == "github"
+            && !defaults.github_url.is_empty()
+            && (self.github_url.is_empty() || self.github_url == defaults.github_url)
+        {
+            if self.github_url.is_empty() {
+                self.github_url.clone_from(&defaults.github_url);
+            }
+            if self.public_key.is_empty() {
+                self.public_key.clone_from(&defaults.public_key);
+            }
+        }
+    }
+
     pub fn manifest_url(&self) -> std::result::Result<&str, String> {
         let url = match self.source.as_str() {
             "domestic" => &self.domestic_url,
@@ -398,5 +454,92 @@ mod mobile_tests {
         config.devices.pop();
         config.devices[0].token = "short".into();
         assert!(config.validate().is_err());
+    }
+}
+
+#[cfg(test)]
+mod update_tests {
+    use super::*;
+
+    #[test]
+    fn old_configs_enable_six_hour_checks_and_respect_opt_out() {
+        let config: Config = toml::from_str("[updates]\nsource = 'github'").unwrap();
+        assert!(config.updates.auto_check);
+        assert_eq!(config.updates.check_interval_hours(), 6);
+        let settings: UpdateSettings =
+            toml::from_str("auto_check = false\ncheck_interval_hours = 0").unwrap();
+        assert!(!settings.auto_check);
+        assert_eq!(settings.check_interval_hours(), 1);
+        let settings: UpdateSettings = toml::from_str("check_interval_hours = 999").unwrap();
+        assert_eq!(settings.check_interval_hours(), 168);
+    }
+
+    #[test]
+    fn legacy_empty_official_values_use_built_in_defaults() {
+        let settings: UpdateSettings =
+            toml::from_str("source = 'github'\ngithub_url = ''\npublic_key = ''").unwrap();
+        let defaults = UpdateSettings::default();
+        assert_eq!(settings.github_url, defaults.github_url);
+        assert_eq!(
+            settings.public_key,
+            if defaults.github_url.is_empty() {
+                ""
+            } else {
+                &defaults.public_key
+            }
+        );
+    }
+
+    #[test]
+    fn official_migration_preserves_explicit_keys_and_unrelated_sources() {
+        let defaults = UpdateSettings {
+            github_url: "https://official.example/manifest.json".into(),
+            public_key: "official-key".into(),
+            ..Default::default()
+        };
+        for url in ["", defaults.github_url.as_str()] {
+            let mut settings = UpdateSettings {
+                source: "github".into(),
+                github_url: url.into(),
+                public_key: String::new(),
+                ..Default::default()
+            };
+            settings.restore_official_defaults(&defaults);
+            assert_eq!(settings.github_url, defaults.github_url);
+            assert_eq!(settings.public_key, defaults.public_key);
+            settings.public_key = "user-key".into();
+            settings.restore_official_defaults(&defaults);
+            assert_eq!(settings.public_key, "user-key");
+        }
+        for (source, url) in [
+            ("custom", ""),
+            ("domestic", ""),
+            ("github", "https://other.example/manifest.json"),
+        ] {
+            let mut settings = UpdateSettings {
+                source: source.into(),
+                github_url: url.into(),
+                public_key: String::new(),
+                ..Default::default()
+            };
+            settings.restore_official_defaults(&defaults);
+            assert!(settings.public_key.is_empty());
+            assert_eq!(settings.github_url, url);
+        }
+    }
+
+    #[test]
+    fn non_official_sources_never_inherit_missing_public_keys() {
+        for raw in [
+            "source = 'custom'",
+            "source = 'domestic'",
+            "source = 'github'\ngithub_url = 'https://other.example/manifest.json'",
+        ] {
+            let settings: UpdateSettings = toml::from_str(raw).unwrap();
+            assert!(settings.public_key.is_empty());
+        }
+        let settings: UpdateSettings = serde_json::from_str(r#"{"source":"github","github_url":"https://other.example/manifest.json","public_key":"user-key","auto_check":false}"#).unwrap();
+        assert_eq!(settings.public_key, "user-key");
+        assert!(!settings.auto_check);
     }
 }

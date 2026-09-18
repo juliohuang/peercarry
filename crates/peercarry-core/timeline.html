@@ -532,6 +532,8 @@ const FIELDS = [
   { sec: zh ? 'AI 跨设备提醒' : 'AI peer notifications' },
   { path: 'ai_token', type: 'password', restart: 1, label: zh ? 'AI 共享令牌（各设备相同，至少 32 字符；留空仅本机）' : 'AI shared token (same on peers, minimum 32 characters; empty for local only)' },
   { sec: zh ? '软件更新（保存后生效）' : 'Software updates (applies after saving)' },
+  { path: 'updates.auto_check', type: 'bool', label: zh ? '自动检查更新（仅提醒，不自动安装）' : 'Automatically check for updates (notify only)' },
+  { path: 'updates.check_interval_hours', type: 'number', min: 1, max: 168, label: zh ? '检查间隔（小时，1–168）' : 'Check interval (hours, 1–168)' },
   { path: 'updates.source', type: 'text', label: zh ? '下载源：domestic / github / custom' : 'Source: domestic / github / custom' },
   { path: 'updates.domestic_url', type: 'text', label: zh ? '国内源版本清单 HTTPS 地址' : 'Domestic manifest HTTPS URL' },
   { path: 'updates.github_url', type: 'text', label: zh ? 'GitHub 版本清单 HTTPS 地址' : 'GitHub manifest HTTPS URL' },
@@ -591,7 +593,7 @@ function renderSettings() {
       : f.restart ? `<span class="note restart">${T.restartNote}</span>` : '';
     const input = f.type === 'bool'
       ? `<input type="checkbox" data-path="${f.path}" ${value ? 'checked' : ''}>`
-      : `<input type="${f.type === 'number' ? 'number' : f.type}" data-path="${f.path}"
+      : `<input type="${f.type === 'number' ? 'number' : f.type}" data-path="${f.path}" ${f.min != null ? `min="${f.min}" max="${f.max}" step="1"` : ''}
            value="${escapeHtml(value == null ? '' : String(value))}" placeholder="${escapeHtml(f.ph || '')}">`;
     html += `<div class="row"><label class="main">${f.label}</label><div class="ctl">${input}</div>${note}</div>`;
   }
