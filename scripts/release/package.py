@@ -27,6 +27,14 @@ This archive contains the `peercarry-tray` desktop application and the `peercarr
    Windows).
 3. To remove the startup entry later, run `peercarry install-service --remove`.
 
+Before upgrading, quit the tray and stop the existing user service. Never run
+the tray and a separate daemon against the same data directory.
+Install and sign in to Tailscale on each peer before using cross-device transfer.
+Linux desktop use requires GTK 3, libxdo and WebKitGTK 4.1 runtime libraries;
+file clipboard support also requires xclip (X11) or wl-clipboard (Wayland).
+Linux startup runs the CLI daemon; do not start the tray alongside that service.
+macOS builds are standalone executables, not a signed/notarized .app or DMG.
+
 Platform: {platform}. The first run may require the normal desktop clipboard
 permissions for your operating system.
 """
@@ -57,16 +65,20 @@ def main() -> None:
         (root / "README-INSTALL.md").write_text(
             readme(args.version, args.triple, args.platform), encoding="utf-8"
         )
-        (root / "Install.ps1").write_text(INSTALL_PS1, encoding="utf-8")
-        (root / "install.sh").write_text(INSTALL_SH, encoding="utf-8")
-        (root / "install.sh").chmod(0o755)
         if suffix == ".zip":
+            (root / "Install.ps1").write_text(INSTALL_PS1, encoding="utf-8")
             with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
                 for item in root.rglob("*"):
                     zf.write(item, item.relative_to(Path(temp)))
         else:
+            (root / "install.sh").write_bytes(INSTALL_SH.encode("utf-8"))
+            # Preserve Unix permissions even when packaging on Windows.
+            def unix_mode(info: tarfile.TarInfo) -> tarfile.TarInfo:
+                info.mode = 0o644 if Path(info.name).name == "README-INSTALL.md" else 0o755
+                return info
+
             with tarfile.open(archive, "w:gz") as tf:
-                tf.add(root, root.name)
+                tf.add(root, root.name, filter=unix_mode)
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     print(f"created {archive.name} sha256={digest}")
 

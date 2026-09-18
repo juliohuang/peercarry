@@ -68,6 +68,9 @@ jobs:
       - name: Install Linux tray dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libxdo-dev libwebkit2gtk-4.1-dev
+      - name: Run platform tests
+        shell: bash
+        run: cargo test --locked --workspace --target "${{ matrix.triple }}"
       - name: Build binaries
         shell: bash
         env:
@@ -75,6 +78,9 @@ jobs:
           PEERCARRY_UPDATE_GITHUB_URL: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
           PEERCARRY_UPDATE_DOMESTIC_URL: ${{ vars.DOWNLOAD_BASE_URL && format('{0}/latest.json', vars.DOWNLOAD_BASE_URL) || '' }}
         run: cargo build --locked --release --target "${{ matrix.triple }}" -p peercarry-tray -p peercarry-cli
+      - name: Smoke test CLI
+        shell: bash
+        run: target/${{ matrix.triple }}/release/peercarry${{ matrix.extension }} --version
       - name: Package release files
         shell: bash
         env:
@@ -160,6 +166,10 @@ jobs:
           if [ -f dist/latest-domestic.json ]; then
             python3 scripts/release/manifest.py verify --manifest dist/latest-domestic.json --public-key "$UPDATE_PUBLIC_KEY"
           fi
+      - name: Generate download checksums
+        run: |
+          cd dist
+          find . -maxdepth 1 -type f ! -name SHA256SUMS.txt ! -name latest-domestic.json -printf "%f\n" | sort | xargs sha256sum > SHA256SUMS.txt
       - name: Create GitHub release and upload artifacts
         env:
           GH_TOKEN: ${{ github.token }}
@@ -171,7 +181,7 @@ jobs:
           python3 scripts/release/validate_release.py --version "$VERSION" --published published-releases.json
           draft="$(gh release view "$VERSION" --json isDraft --jq .isDraft 2>/dev/null || true)"
           if [[ -z "$draft" ]]; then
-            gh release create "$VERSION" --verify-tag --draft --title "$VERSION" --generate-notes
+            gh release create "$VERSION" --verify-tag --draft --title "PeerCarry $VERSION" --notes-file "docs/releases/${VERSION}.md"
             draft=true
           fi
           if [[ "$draft" == true ]]; then
