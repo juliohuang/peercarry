@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "name": "focus prompt (read-only check)",
+  "target": { "exe": "zcode.exe", "title": "My Project" },
+  "steps": [
+    { "id": "focus", "action": "focus", "selector": { "role": "edit", "name": "Prompt" } },
+    { "id": "assert", "action": "assert", "assertion": { "kind": "element_present", "selector": { "role": "edit", "name": "Prompt" } } }
+  ]
+}

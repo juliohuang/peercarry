@@ -1,0 +1,827 @@
+<!doctype html>
+<!-- peercarry timeline + settings, served by the daemon at http://127.0.0.1:<port>/
+     Zero dependencies: one page of vanilla JS against /v1/timeline and /v1/config. -->
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>peercarry</title>
+<style>
+  :root {
+    --bg: #14161a; --panel: #1c1f25; --border: #2b2f37;
+    --text: #d8dce3; --dim: #8a919c; --accent: #4da3ff;
+    --ok: #58c288; --warn: #e2b34d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  header {
+    position: sticky; top: 0; z-index: 2; display: flex; gap: 12px; align-items: center;
+    padding: 10px 18px; background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  h1 { font-size: 15px; margin: 0 4px 0 0; color: var(--accent); white-space: nowrap; cursor: pointer; }
+  #q {
+    flex: 1; padding: 8px 12px; font: inherit; color: var(--text);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px; outline: none;
+  }
+  #q:focus { border-color: var(--accent); }
+  #count { color: var(--dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .tab {
+    background: none; border: 1px solid transparent; border-radius: 8px; color: var(--dim);
+    font: inherit; padding: 6px 14px; cursor: pointer; white-space: nowrap;
+  }
+  .tab.active { color: var(--text); border-color: var(--border); background: var(--bg); }
+  #ai-tasks { max-width: 860px; margin: 0 auto; padding: 18px 18px 80px; }
+  #ai-tasks-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 8px 0 16px; }
+  #ai-tasks-status { color: var(--dim); }
+  #ai-receiver-label { display: inline-flex; align-items: center; gap: 7px; margin-left: auto; }
+  #ai-devices { display: grid; gap: 12px; }
+  .ai-device { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; background: var(--panel); }
+  .ai-device-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .ai-device-host { font-weight: 600; }
+  .ai-device-state { color: var(--dim); font-size: 12px; }
+  .ai-event { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) minmax(130px, 1fr) auto; gap: 8px 14px; padding: 8px 0; border-top: 1px solid var(--border); align-items: baseline; }
+  .ai-event-meta, .ai-event-time { color: var(--dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ai-empty { color: var(--dim); padding: 28px 0; text-align: center; }
+  #ai-tools { margin: 18px 0; padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+  #ai-tools h3 { margin: 0 0 10px; font-size: 14px; }
+  .ai-tool { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 0; border-top: 1px solid var(--border); }
+  .ai-tool-name { min-width: 80px; font-weight: 600; }
+  .ai-tool-state { flex: 1; min-width: 180px; color: var(--dim); font-size: 12px; }
+  @media (max-width: 650px) { .ai-event { grid-template-columns: 1fr 1fr; } #ai-receiver-label { margin-left: 0; } }
+  main { max-width: 860px; margin: 0 auto; padding: 18px 18px 80px; }
+  /* timeline */
+  .day { margin: 22px 0 8px; color: var(--dim); font-size: 12px; letter-spacing: 1px; text-transform: uppercase; }
+  .item {
+    display: flex; gap: 12px; align-items: baseline; padding: 9px 12px; cursor: pointer;
+    border-left: 2px solid var(--border); border-radius: 6px;
+  }
+  .item:hover { background: var(--panel); }
+  .item.sel { background: var(--panel); border-left-color: var(--accent); }
+  .time { color: var(--dim); font-variant-numeric: tabular-nums; flex: 0 0 44px; }
+  .icon { flex: 0 0 18px; text-align: center; }
+  .preview { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .host { flex: 0 0 auto; color: var(--dim); font-size: 12px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .size { flex: 0 0 auto; color: var(--dim); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .pin { flex: 0 0 auto; background: none; border: none; cursor: pointer; font-size: 13px; padding: 0 2px; opacity: .25; }
+  .pin.on { opacity: 1; }
+  .empty { color: var(--dim); padding: 40px 0; text-align: center; }
+  /* settings */
+  #settings h2 { font-size: 13px; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; margin: 28px 0 10px; }
+  .row { display: flex; align-items: center; gap: 14px; padding: 7px 0; border-bottom: 1px solid var(--border); }
+  .row label.main { flex: 0 0 260px; }
+  .row .ctl { flex: 1; min-width: 0; }
+  .row .note { flex: 0 0 auto; font-size: 12px; }
+  .note.restart { color: var(--warn); }
+  .note.live { color: var(--ok); }
+  input[type=text], input[type=number], input[type=password] {
+    width: 100%; padding: 7px 10px; font: inherit; color: var(--text);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px; outline: none;
+  }
+  input:focus { border-color: var(--accent); }
+  input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--accent); }
+  .apps .row { flex-wrap: wrap; }
+  .apps input { font-size: 13px; }
+  .apps .cname { flex: 0 0 160px; }
+  .apps .cpath { flex: 1 1 320px; }
+  .apps .cargs { flex: 0 1 200px; }
+  .apps .del { background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--dim); cursor: pointer; padding: 5px 10px; }
+  .apps .del:hover { color: var(--warn); border-color: var(--warn); }
+  button.primary {
+    background: var(--accent); border: none; border-radius: 8px; color: #10233c;
+    font: inherit; font-weight: 600; padding: 9px 18px; cursor: pointer;
+  }
+  button.secondary {
+    background: none; border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+    font: inherit; padding: 9px 18px; cursor: pointer;
+  }
+  button:hover { filter: brightness(1.1); }
+  #cfg-status { margin-left: 14px; font-size: 13px; }
+  #cfg-status.ok { color: var(--ok); }
+  #cfg-status.err { color: var(--warn); }
+  #remote-capture { max-width: 824px; margin: 18px auto 0; padding: 16px 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); }
+  #remote-capture-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #remote-peer { min-width: 240px; flex: 1; padding: 8px 10px; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
+  #remote-peer:focus { border-color: var(--accent); outline: none; }
+  #remote-capture-status { margin: 10px 0 0; color: var(--dim); }
+  .addrow { margin-top: 10px; }
+  #toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+    background: var(--panel); border: 1px solid var(--border); color: var(--text);
+    padding: 9px 16px; border-radius: 8px; opacity: 0; transition: opacity .25s; pointer-events: none;
+    max-width: 70vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #toast.show { opacity: 1; }
+  #toast.ok { border-color: var(--ok); }
+  #toast.err { border-color: var(--warn); }
+  footer {
+    position: fixed; bottom: 0; left: 0; right: 0; padding: 6px 18px; text-align: center;
+    color: var(--dim); font-size: 12px; background: var(--bg); border-top: 1px solid var(--border);
+  }
+  kbd { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; font-size: 11px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="brand">peercarry</h1>
+  <button class="tab active" id="tab-timeline"></button>
+  <button class="tab" id="tab-settings"></button>
+  <button class="tab" id="tab-ai"></button>
+  <input id="q" type="search" autofocus autocomplete="off">
+  <span id="count"></span>
+</header>
+
+<section id="file-share" style="max-width:824px; margin:18px auto 0; padding:20px; border:2px dashed var(--accent); border-radius:12px; background:var(--panel);">
+  <strong id="file-title"></strong>
+  <p id="file-help" style="color:var(--dim)"></p>
+  <button class="primary" id="pick-files"></button>
+  <button class="secondary" id="pick-folder"></button>
+  <p id="file-status" role="status" aria-live="polite"></p>
+</section>
+<section id="remote-capture">
+  <strong id="remote-capture-title"></strong>
+  <p id="remote-capture-help" style="color:var(--dim)"></p>
+  <div id="remote-capture-controls">
+    <select id="remote-peer" aria-label="remote peer"></select>
+    <button class="secondary" id="remote-refresh"></button>
+    <button class="primary" id="remote-fetch"></button>
+  </div>
+  <p id="remote-capture-status" role="status" aria-live="polite"></p>
+</section>
+<main id="timeline"></main>
+
+<main id="ai-tasks" hidden>
+  <h2 id="ai-title"></h2>
+  <div id="ai-tasks-controls">
+    <button class="secondary" id="ai-refresh"></button>
+    <span id="ai-tasks-status" role="status" aria-live="polite"></span>
+    <label id="ai-receiver-label"><input type="checkbox" id="ai-receiver"> <span id="ai-receiver-text"></span></label>
+  </div>
+  <section id="ai-tools">
+    <h3 id="ai-tools-title"></h3>
+    <div id="ai-tool-codex" class="ai-tool"></div>
+    <div id="ai-tool-zcode" class="ai-tool"></div>
+  </section>
+  <div id="ai-devices"></div>
+</main>
+
+<main id="settings" hidden>
+  <div id="cfgform"></div>
+
+  <h2 id="apps-title"></h2>
+  <div class="apps" id="apps-rows"></div>
+  <div class="addrow"><button class="secondary" id="app-add"></button></div>
+
+  <div style="margin-top:30px; display:flex; align-items:center;">
+    <button class="primary" id="cfg-save"></button>
+    <button class="secondary" id="cfg-save-restart" style="margin-left:10px;"></button>
+    <span id="cfg-status"></span>
+  </div>
+</main>
+
+<div id="toast"></div>
+<footer id="hint"></footer>
+<script>
+'use strict';
+const zh = navigator.language && navigator.language.toLowerCase().startsWith('zh');
+const T = zh ? {
+  tabTimeline: '时间线', tabSettings: '设置',
+  placeholder: '搜索内容、文件名、设备名…', count: n => `${n} 条`,
+  empty: '没有匹配的条目', pulled: ok => ok ? '已取回到剪贴板' : '取回失败',
+  pinned: '已固定', unpinned: '已取消固定',
+  today: '今天', yesterday: '昨天',
+  hint: '<kbd>↑</kbd><kbd>↓</kbd> 选择 · <kbd>Enter</kbd> 取回到剪贴板 · <kbd>Ctrl</kbd>+<kbd>P</kbd> 固定 · <kbd>Esc</kbd> 清空搜索',
+  // settings
+  settings: '设置', restartNote: '重启生效', liveNote: '立即生效', apps: '可远程启动的软件',
+  appAdd: '+ 添加软件', appName: '名称', appPath: '可执行文件路径', appArgs: '参数(逗号分隔)',
+  save: '保存', saveRestart: '保存并重启服务',
+  saved: '已保存到 config.toml', restarting: '服务重启中…', restarted: '服务已重启，配置已生效',
+  del: '删除', appNamePh: '例如 chrome', appArgsPh: '可选',
+  cfgFetchFail: '读取配置失败: ',
+} : {
+  tabTimeline: 'Timeline', tabSettings: 'Settings',
+  placeholder: 'Search text, file names, devices…', count: n => `${n} entries`,
+  empty: 'nothing matches', pulled: ok => ok ? 'pulled to clipboard' : 'pull failed',
+  pinned: 'pinned', unpinned: 'unpinned',
+  today: 'Today', yesterday: 'Yesterday',
+  hint: '<kbd>↑</kbd><kbd>↓</kbd> select · <kbd>Enter</kbd> pull to clipboard · <kbd>Ctrl</kbd>+<kbd>P</kbd> pin · <kbd>Esc</kbd> clear search',
+  settings: 'Settings', restartNote: 'restart to apply', liveNote: 'applies now', apps: 'Apps launchable by peers',
+  appAdd: '+ Add app', appName: 'Name', appPath: 'Executable path', appArgs: 'Args (comma separated)',
+  save: 'Save', saveRestart: 'Save & restart service',
+  saved: 'saved to config.toml', restarting: 'restarting the service…', restarted: 'service restarted, config is live',
+  del: 'del', appNamePh: 'e.g. chrome', appArgsPh: 'optional',
+  cfgFetchFail: 'failed to load config: ',
+};
+const ICONS = { text: '📝', image: '🖼️', files: '📁' };
+const $ = id => document.getElementById(id);
+const q = $('q'), list = $('timeline'), count = $('count'), toast = $('toast');
+
+/* ------------------------------------------------------------ tabs */
+function showTab(which) {
+  const tl = which === 'timeline';
+  const ai = which === 'ai';
+  $('tab-timeline').classList.toggle('active', tl);
+  $('tab-settings').classList.toggle('active', which === 'settings');
+  $('tab-ai').classList.toggle('active', ai);
+  $('timeline').hidden = !tl;
+  $('file-share').hidden = !tl;
+  $('remote-capture').hidden = !tl;
+  $('ai-tasks').hidden = !ai;
+  $('settings').hidden = which !== 'settings';
+  q.style.display = tl ? '' : 'none';
+  count.style.display = tl ? '' : 'none';
+  $('hint').innerHTML = tl ? T.hint : '';
+  if (tl) refresh();
+  if (ai) { loadAiOverview(); scanAiTools(); }
+}
+$('tab-timeline').textContent = T.tabTimeline;
+$('tab-settings').textContent = T.tabSettings;
+$('tab-timeline').onclick = () => showTab('timeline');
+$('tab-settings').onclick = () => { showTab('settings'); loadConfig(); };
+$('tab-ai').textContent = zh ? 'AI 任务' : 'AI tasks';
+$('ai-title').textContent = zh ? 'AI 任务提醒' : 'AI task alerts';
+$('ai-refresh').textContent = zh ? '刷新' : 'Refresh';
+$('ai-receiver-text').textContent = zh ? '在本机接收 AI 提醒' : 'Receive AI alerts on this device';
+$('ai-tools-title').textContent = zh ? 'AI 工具接入' : 'AI tool connections';
+
+function show(msg, cls) {
+  toast.textContent = msg;
+  toast.className = 'show ' + (cls || '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (toast.className = ''), 2200);
+}
+
+/* ------------------------------------------------------------ timeline */
+let entries = [], sel = 0, seq = 0, toastTimer;
+
+function human(n) {
+  if (n < 1024) return n + 'B';
+  for (const unit of ['K', 'M', 'G']) { n /= 1024; if (n < 1024) return n.toFixed(n < 10 ? 1 : 0) + unit; }
+  return n.toFixed(0) + 'T';
+}
+function hhmm(iso) {
+  const d = new Date(iso);
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+function dayLabel(iso) {
+  const d = new Date(iso), now = new Date();
+  const day = s => new Date(s.getFullYear(), s.getMonth(), s.getDate()).getTime();
+  const diff = Math.round((day(now) - day(d)) / 86400000);
+  if (diff === 0) return T.today;
+  if (diff === 1) return T.yesterday;
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', weekday: 'short' });
+}
+
+async function refresh() {
+  const ticket = ++seq, query = q.value.trim();
+  const url = '/v1/timeline?limit=200&max=1000' + (query ? '&q=' + encodeURIComponent(query) : '');
+  try {
+    const resp = await fetch(url);
+    if (resp.status === 401) { show('auth_token is set - this page needs a token-free config', 'err'); return; }
+    if (!resp.ok) throw new Error(resp.status);
+    const data = await resp.json();
+    if (ticket !== seq) return;              // a newer query already rendered
+    entries = data;
+    sel = 0;
+    render();
+  } catch (e) { show('timeline fetch failed: ' + e, 'err'); }
+}
+
+function render() {
+  count.textContent = T.count(entries.length);
+  if (!entries.length) { list.innerHTML = `<div class="empty">${T.empty}</div>`; return; }
+  let html = '', lastDay = '', index = 0;
+  for (const e of entries) {
+    const day = dayLabel(e.created_at);
+    if (day !== lastDay) { html += `<div class="day">${day}</div>`; lastDay = day; }
+    const pinned = e.pinned ? ' ✔' : '';
+    html += `<div class="item${index === sel ? ' sel' : ''}" data-i="${index}">`
+      + `<span class="time">${hhmm(e.created_at)}</span>`
+      + `<span class="icon">${ICONS[e.kind] || '•'}</span>`
+      + `<span class="preview">${escapeHtml(e.preview)}</span>`
+      + `<span class="host">${escapeHtml(e.origin.host)}${e.holder ? ' ⇡' : ''}${pinned}</span>`
+      + `<span class="size">${human(e.size)}</span>`
+      + `<button class="pin${e.pinned ? ' on' : ''}" data-pin="${index}" title="pin">📌</button>`
+      + `</div>`;
+    index++;
+  }
+  list.innerHTML = html;
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+async function apply(i) {
+  const e = entries[i];
+  if (!e) return;
+  try {
+    const resp = await fetch('/v1/actions/apply', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: e.id }),
+    });
+    const result = await resp.json();
+    show(`${T.pulled(result.ok)} · ${result.kind} · ${result.detail}`, result.ok ? 'ok' : 'err');
+  } catch (err) { show(String(err), 'err'); }
+}
+
+async function togglePin(i) {
+  const e = entries[i];
+  if (!e) return;
+  try {
+    const resp = await fetch('/v1/actions/pin', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: e.id, pinned: !e.pinned }),
+    });
+    if (!resp.ok) throw new Error(resp.status);
+    show(e.pinned ? T.unpinned : T.pinned, 'ok');
+    refresh();
+  } catch (err) { show(String(err), 'err'); }
+}
+
+list.addEventListener('click', ev => {
+  const pinBtn = ev.target.closest('[data-pin]');
+  if (pinBtn) { togglePin(+pinBtn.dataset.pin); return; }
+  const row = ev.target.closest('.item');
+  if (row) apply(+row.dataset.i);
+});
+
+function moveSelection(delta) {
+  if (!entries.length) return;
+  sel = Math.min(entries.length - 1, Math.max(0, sel + delta));
+  render();
+  list.querySelector('.sel')?.scrollIntoView({ block: 'nearest' });
+}
+
+document.addEventListener('keydown', ev => {
+  if ($('settings').hidden) {
+    if (ev.key === 'ArrowDown') { ev.preventDefault(); moveSelection(1); }
+    else if (ev.key === 'ArrowUp') { ev.preventDefault(); moveSelection(-1); }
+    else if (ev.key === 'Enter' && !ev.ctrlKey && !ev.metaKey) { ev.preventDefault(); apply(sel); }
+    else if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'p') { ev.preventDefault(); togglePin(sel); }
+    else if (ev.key === 'Escape') { q.value = ''; refresh(); q.focus(); }
+  }
+});
+
+let debounce;
+q.addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(refresh, 220); });
+
+/* ------------------------------------------------------------ AI task alerts */
+const aiDevices = $('ai-devices'), aiStatus = $('ai-tasks-status'), aiReceiver = $('ai-receiver');
+let aiVisible = false, aiTimer = null, aiBusy = false;
+const AI_STATES = {
+  UserPromptSubmit: zh ? '运行中' : 'running',
+  Stop: zh ? '本轮已结束' : 'turn ended',
+  PermissionRequest: zh ? '等待审批' : 'approval requested',
+  PostToolUse: zh ? '运行中' : 'running',
+  PostToolUseFailure: zh ? '工具失败' : 'tool failed',
+  Interrupt: zh ? '已中断' : 'interrupted',
+  SessionEnd: zh ? '已结束' : 'ended',
+};
+function aiText(value, fallback) {
+  return typeof value === 'string' && value.trim() ? value.trim() : fallback;
+}
+function aiTime(event) {
+  const sequence = Number(event && event.sequence);
+  if (Number.isFinite(sequence)) return sequence;
+  const parsed = Date.parse(event && event.received_at);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+function aiLatest(events) {
+  const latest = new Map();
+  for (const event of Array.isArray(events) ? events : []) {
+    if (!event || typeof event !== 'object') continue;
+    const key = [event.tool, event.session_id].map(v => aiText(v, '?')).join('\u0000');
+    const old = latest.get(key);
+    if (!old || aiTime(event) >= aiTime(old)) latest.set(key, event);
+  }
+  return [...latest.values()].sort((a, b) => aiTime(b) - aiTime(a));
+}
+function aiAppend(parent, tag, text, className) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  node.textContent = text;
+  parent.append(node);
+  return node;
+}
+function renderAi(data) {
+  aiDevices.replaceChildren();
+  aiReceiver.checked = data && data.receiver_enabled === true;
+  const devices = Array.isArray(data && data.devices) ? data.devices : [];
+  if (!devices.length) { aiAppend(aiDevices, 'div', zh ? '暂无 AI 任务' : 'No AI tasks', 'ai-empty'); return; }
+  for (const device of devices) {
+    const card = aiAppend(aiDevices, 'section', '', 'ai-device');
+    const head = aiAppend(card, 'div', '', 'ai-device-head');
+    aiAppend(head, 'span', aiText(device && device.host, zh ? '未知设备' : 'Unknown host'), 'ai-device-host');
+    aiAppend(head, 'span', device && device.online === true ? (zh ? '在线' : 'online') : device && device.online === false ? (zh ? '离线' : 'offline') : (zh ? '状态未知' : 'status unknown'), 'ai-device-state');
+    if (device && device.error) aiAppend(card, 'div', aiText(device.error, zh ? '读取失败' : 'read failed'), 'ai-device-state');
+    if (device && device.discovery_error) aiAppend(card, 'div', aiText(device.discovery_error, zh ? '发现失败' : 'discovery failed'), 'ai-device-state');
+    for (const event of aiLatest(device && device.events)) {
+      const row = aiAppend(card, 'div', '', 'ai-event');
+      aiAppend(row, 'span', aiText(event.tool, '?'), 'ai-event-meta');
+      aiAppend(row, 'span', aiText(event.project, zh ? '项目未登记' : 'project unknown'), 'ai-event-meta');
+      const hook = aiText(event.hook, aiText(event.event, zh ? '状态未知' : 'unknown'));
+      aiAppend(row, 'span', aiText(AI_STATES[hook], hook), 'ai-event-meta');
+      const timestamp = aiText(event.received_at, zh ? '时间未知' : 'time unknown');
+      aiAppend(row, 'time', timestamp, 'ai-event-time');
+    }
+  }
+}
+async function loadAiOverview() {
+  if (!aiVisible || aiBusy) return;
+  aiBusy = true;
+  try {
+    const resp = await fetch('/v1/ai/overview');
+    if (!resp.ok) throw new Error(resp.status + (resp.status === 401 ? (zh ? '（需要访问令牌）' : ' (token required)') : ''));
+    const data = await resp.json();
+    renderAi(data);
+    aiStatus.textContent = '';
+  } catch (error) {
+    aiStatus.textContent = (zh ? '读取 AI 任务失败：' : 'Failed to load AI tasks: ') + String(error);
+  } finally { aiBusy = false; }
+}
+function aiToolState(info) {
+  if (!info || typeof info !== 'object') return zh ? '状态未知' : 'status unknown';
+  const parts = [];
+  if (typeof info.available === 'boolean') parts.push(info.available ? (zh ? '可用' : 'available') : (zh ? '不可用' : 'unavailable'));
+  if (typeof info.executable === 'string' && info.executable) parts.push(info.executable);
+  if (typeof info.config_path === 'string' && info.config_path) parts.push(info.config_path);
+  if (typeof info.configured === 'boolean') parts.push(info.configured ? (zh ? '已绑定' : 'bound') : (zh ? '未绑定' : 'not bound'));
+  return parts.join(' · ') || (zh ? '状态未知' : 'status unknown');
+}
+function renderAiTools(data) {
+  const tools = data && typeof data === 'object' ? data : {};
+  for (const name of ['codex', 'zcode']) {
+    const row = $('ai-tool-' + name);
+    row.replaceChildren();
+    aiAppend(row, 'span', name === 'codex' ? 'Codex' : 'ZCode', 'ai-tool-name');
+    aiAppend(row, 'span', aiToolState(tools[name]), 'ai-tool-state');
+    const bind = document.createElement('button');
+    bind.className = 'secondary';
+    bind.textContent = zh ? '绑定' : 'Bind';
+    bind.onclick = () => changeAiBinding(name, false);
+    row.append(bind);
+    const remove = document.createElement('button');
+    remove.className = 'secondary';
+    remove.textContent = zh ? '解绑' : 'Unbind';
+    remove.onclick = () => changeAiBinding(name, true);
+    row.append(remove);
+  }
+}
+async function scanAiTools() {
+  aiStatus.textContent = zh ? '正在扫描工具…' : 'Scanning tools…';
+  try {
+    const resp = await fetch('/v1/ai/tools');
+    if (!resp.ok) throw new Error(resp.status + (resp.status === 401 ? (zh ? '（需要访问令牌）' : ' (token required)') : ''));
+    renderAiTools(await resp.json());
+    aiStatus.textContent = zh ? '工具扫描完成' : 'Tool scan complete';
+  } catch (error) { aiStatus.textContent = (zh ? '扫描工具失败：' : 'Tool scan failed: ') + String(error); }
+}
+async function changeAiBinding(tool, remove) {
+  const action = remove ? (zh ? '解绑' : 'unbind') : (zh ? '绑定' : 'bind');
+  const prompt = zh
+    ? `确认${action} ${tool}？这会修改本机 hook 配置。`
+    : `Confirm ${action} ${tool}? This changes the local hook configuration.`;
+  if (!window.confirm(prompt)) return;
+  aiStatus.textContent = zh ? '正在更新工具绑定…' : 'Updating tool binding…';
+  try {
+    const resp = await fetch('/v1/ai/bind', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tool, remove }) });
+    if (!resp.ok) throw new Error(resp.status + (resp.status === 401 ? (zh ? '（需要访问令牌）' : ' (token required)') : ''));
+    const result = await resp.json();
+    const message = aiText(result && result.message, zh ? '操作已完成' : 'Operation completed');
+    await scanAiTools();
+    aiStatus.textContent = message + (zh ? '；请在工具中确认信任并开启新会话验证（当前未验证）。' : '; trust the hook in the tool and start a new session to verify (not verified).');
+  } catch (error) { aiStatus.textContent = (zh ? '更新工具绑定失败：' : 'Tool binding failed: ') + String(error); }
+}
+const aiToolScan = document.createElement('button');
+aiToolScan.className = 'secondary';
+aiToolScan.textContent = zh ? '扫描工具' : 'Scan tools';
+aiToolScan.onclick = scanAiTools;
+$('ai-tools').querySelector('h3').append(aiToolScan);
+async function setAiReceiver(enabled) {
+  aiReceiver.disabled = true;
+  try {
+    const resp = await fetch('/v1/ai/receiver', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) });
+    if (!resp.ok) throw new Error(resp.status + (resp.status === 401 ? (zh ? '（需要访问令牌）' : ' (token required)') : ''));
+    let data = null;
+    try { data = await resp.json(); } catch (_) { /* a successful 204 is also valid */ }
+    aiReceiver.checked = data && typeof data.receiver_enabled === 'boolean' ? data.receiver_enabled : enabled;
+    aiStatus.textContent = '';
+  } catch (error) {
+    aiReceiver.checked = !enabled;
+    aiStatus.textContent = (zh ? '更新接收设置失败：' : 'Failed to update receiver: ') + String(error);
+  } finally { aiReceiver.disabled = false; }
+}
+aiReceiver.onchange = () => setAiReceiver(aiReceiver.checked);
+$('tab-ai').onclick = () => showTab('ai');
+$('ai-refresh').onclick = () => loadAiOverview();
+function setAiPolling(active) {
+  aiVisible = active;
+  clearInterval(aiTimer);
+  aiTimer = active ? setInterval(loadAiOverview, 5000) : null;
+}
+const originalShowTab = showTab;
+showTab = function(which) { setAiPolling(which === 'ai'); originalShowTab(which); };
+
+/* ------------------------------------------------------------ settings */
+// Every configurable knob; `restart` fields are read once at startup, only
+// the download folder applies to the running service.
+const FIELDS = [
+  { sec: zh ? 'AI 跨设备提醒' : 'AI peer notifications' },
+  { path: 'ai_token', type: 'password', restart: 1, label: zh ? 'AI 共享令牌（各设备相同，至少 32 字符；留空仅本机）' : 'AI shared token (same on peers, minimum 32 characters; empty for local only)' },
+  { sec: zh ? '软件更新（保存后生效）' : 'Software updates (applies after saving)' },
+  { path: 'updates.source', type: 'text', label: zh ? '下载源：domestic / github / custom' : 'Source: domestic / github / custom' },
+  { path: 'updates.domestic_url', type: 'text', label: zh ? '国内源版本清单 HTTPS 地址' : 'Domestic manifest HTTPS URL' },
+  { path: 'updates.github_url', type: 'text', label: zh ? 'GitHub 版本清单 HTTPS 地址' : 'GitHub manifest HTTPS URL' },
+  { path: 'updates.custom_url', type: 'text', label: zh ? '自定义版本清单 HTTPS 地址' : 'Custom manifest HTTPS URL' },
+  { path: 'updates.public_key', type: 'text', label: zh ? '可信发布公钥（64 位十六进制）' : 'Trusted release public key (64 hex characters)' },
+  { sec: zh ? '节点' : 'Node' },
+  { path: 'node.name', type: 'text', restart: 1, label: zh ? '显示名' : 'Display name', ph: zh ? '留空用主机名' : 'empty = hostname' },
+  { path: 'node.discoverable', type: 'bool', restart: 1, label: zh ? '可被发现' : 'Discoverable' },
+  { path: 'node.allow_remote_apply', type: 'bool', restart: 1, label: zh ? '允许对端改写本机剪贴板' : 'Allow peers to write clipboard' },
+  { path: 'node.allow_remote_capture', type: 'bool', restart: 1, label: zh ? '允许对端获取本机剪贴板' : 'Allow peers to fetch clipboard' },
+  { path: 'node.allow_remote_launch', type: 'bool', restart: 1, label: zh ? '允许对端启动本机软件' : 'Allow peers to launch apps' },
+  { sec: zh ? '网络' : 'Network' },
+  { path: 'network.port', type: 'number', restart: 1, label: 'Port' },
+  { path: 'network.bind', type: 'text', restart: 1, label: 'Bind', ph: zh ? '留空自动绑定 Tailscale IP' : 'empty = auto (Tailscale IP)' },
+  { path: 'network.auth_token', type: 'password', restart: 1, label: zh ? '访问令牌' : 'Auth token', ph: zh ? '留空不启用' : 'empty = off' },
+  { path: 'network.request_timeout_secs', type: 'number', restart: 1, label: zh ? '请求超时（秒）' : 'Request timeout (s)' },
+  { path: 'network.connect_timeout_secs', type: 'number', restart: 1, label: zh ? '连接超时（秒）' : 'Connect timeout (s)' },
+  { path: 'network.discovery_concurrency', type: 'number', restart: 1, label: zh ? '发现并发数' : 'Discovery concurrency' },
+  { sec: zh ? '限制' : 'Limits' },
+  { path: 'limits.inline_image_bytes', type: 'number', restart: 1, label: zh ? '图片内联上限（字节）' : 'Inline image limit (bytes)' },
+  { path: 'limits.inline_text_bytes', type: 'number', restart: 1, label: zh ? '文本内联上限（字节）' : 'Inline text limit (bytes)' },
+  { path: 'limits.max_transfer_bytes', type: 'number', restart: 1, label: zh ? '单次传输上限（字节）' : 'Max transfer (bytes)' },
+  { sec: zh ? '存储' : 'Storage' },
+  { path: 'storage.history_limit', type: 'number', restart: 1, label: zh ? '历史上限（每设备）' : 'History limit (per device)' },
+  { path: 'storage.thumbnail_px', type: 'number', restart: 1, label: zh ? '缩略图边长（px）' : 'Thumbnail size (px)' },
+  { path: 'storage.dedupe', type: 'bool', restart: 1, label: zh ? '捕获时去重' : 'Dedupe on capture' },
+  { path: 'storage.download_dir', type: 'text', live: 1, label: zh ? '接收文件夹' : 'Download folder', ph: zh ? '留空 = 下载/peercarry' : 'empty = Downloads/peercarry' },
+  { path: 'storage.data_dir', type: 'text', restart: 1, label: zh ? '数据目录' : 'Data directory', ph: zh ? '留空 = 默认位置' : 'empty = default location' },
+];
+
+let cfg = null;
+
+function getByPath(obj, path) {
+  return path.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);
+}
+function setByPath(obj, path, value) {
+  const keys = path.split('.');
+  const last = keys.pop();
+  keys.reduce((o, k) => o[k], obj)[last] = value;
+}
+
+function loadConfig() {
+  fetch('/v1/config')
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(data => { cfg = data; renderSettings(); })
+    .catch(e => show(T.cfgFetchFail + e, 'err'));
+}
+
+function renderSettings() {
+  const form = $('cfgform');
+  let html = '';
+  for (const f of FIELDS) {
+    if (f.sec) { html += `<h2>${f.sec}</h2>`; continue; }
+    const value = getByPath(cfg, f.path);
+    const note = f.live
+      ? `<span class="note live">${T.liveNote}</span>`
+      : f.restart ? `<span class="note restart">${T.restartNote}</span>` : '';
+    const input = f.type === 'bool'
+      ? `<input type="checkbox" data-path="${f.path}" ${value ? 'checked' : ''}>`
+      : `<input type="${f.type === 'number' ? 'number' : f.type}" data-path="${f.path}"
+           value="${escapeHtml(value == null ? '' : String(value))}" placeholder="${escapeHtml(f.ph || '')}">`;
+    html += `<div class="row"><label class="main">${f.label}</label><div class="ctl">${input}</div>${note}</div>`;
+  }
+  form.innerHTML = html;
+  renderApps();
+  $('app-add').textContent = T.appAdd;
+  $('cfg-save').textContent = T.save;
+  $('cfg-save-restart').textContent = T.saveRestart;
+  $('apps-title').textContent = T.apps;
+}
+
+function renderApps() {
+  const rows = (cfg.apps || []).map((app, i) =>
+    `<div class="row" data-app="${i}">
+       <input class="cname" data-app-field="name" value="${escapeHtml(app.name)}" placeholder="${T.appNamePh}" title="${T.appName}">
+       <input class="cpath" data-app-field="path" value="${escapeHtml(app.path)}" placeholder="${T.appPath}" title="${T.appPath}">
+       <input class="cargs" data-app-field="args" value="${escapeHtml((app.args || []).join(', '))}" placeholder="${T.appArgs}" title="${T.appArgs}">
+       <button class="del" data-app-del="${i}">${T.del}</button>
+     </div>`).join('');
+  $('apps-rows').innerHTML = rows;
+}
+
+$('app-add').onclick = () => {
+  cfg = cfg || { apps: [] };
+  cfg.apps.push({ name: '', path: '', args: [] });
+  renderApps();
+};
+$('apps-rows').addEventListener('click', ev => {
+  const del = ev.target.closest('[data-app-del]');
+  if (del) { cfg.apps.splice(+del.dataset.appDel, 1); renderApps(); }
+});
+
+function collectConfig() {
+  document.querySelectorAll('#cfgform [data-path]').forEach(input => {
+    const path = input.dataset.path;
+    let value;
+    if (input.type === 'checkbox') value = input.checked;
+    else if (input.type === 'number') value = input.value === '' ? 0 : Number(input.value);
+    else value = input.value;
+    setByPath(cfg, path, value);
+  });
+  cfg.apps = [...document.querySelectorAll('#apps-rows [data-app]')].map(row => ({
+    name: row.querySelector('[data-app-field=name]').value.trim(),
+    path: row.querySelector('[data-app-field=path]').value.trim(),
+    args: row.querySelector('[data-app-field=args]').value.split(',').map(s => s.trim()).filter(Boolean),
+  }));
+}
+
+function status(msg, cls) {
+  const el = $('cfg-status');
+  el.textContent = msg;
+  el.className = cls || '';
+}
+
+async function saveConfig(andRestart) {
+  collectConfig();
+  const statusText = $('cfg-status');
+  try {
+    const resp = await fetch('/v1/config', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cfg),
+    });
+    if (!resp.ok) { statusText.textContent = await resp.text(); statusText.className = 'err'; return; }
+  } catch (e) { statusText.textContent = String(e); statusText.className = 'err'; return; }
+
+  if (!andRestart) { statusText.textContent = T.saved; statusText.className = 'ok'; return; }
+
+  statusText.textContent = T.restarting;
+  statusText.className = '';
+  try {
+    const resp = await fetch('/v1/actions/restart', { method: 'POST' });
+    if (!resp.ok) { statusText.textContent = await resp.text(); statusText.className = 'err'; return; }
+  } catch (e) { /* the daemon may drop the connection as it exits */ }
+
+  // Wait for the fresh process to answer again.
+  const deadline = Date.now() + 20000;
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 800));
+    try {
+      const hello = await fetch('/v1/hello');
+      if (hello.ok) { statusText.textContent = T.restarted; statusText.className = 'ok'; loadConfig(); return; }
+    } catch (e) { /* still restarting */ }
+  }
+  statusText.textContent = 'timeout'; statusText.className = 'err';
+}
+
+$('cfg-save').onclick = () => saveConfig(false);
+$('cfg-save-restart').onclick = () => saveConfig(true);
+
+/* ------------------------------------------------------------ boot */
+const remotePeer = $('remote-peer'), remoteRefresh = $('remote-refresh'), remoteFetch = $('remote-fetch');
+$('remote-refresh').textContent = zh ? '刷新设备' : 'Refresh devices';
+$('remote-capture-title').textContent = zh ? '从其他设备获取当前剪贴板' : 'Fetch the current clipboard from another device';
+$('remote-capture-help').textContent = zh
+  ? '主动从所选在线设备获取一条当前剪贴板记录；获取后只刷新历史，不会自动改写本机剪贴板。'
+  : 'Fetch one current clipboard entry from the selected online device. The history refreshes after fetching; your local clipboard is not changed.';
+remoteFetch.textContent = zh ? '获取当前剪贴板' : 'Fetch current clipboard';
+remotePeer.textContent = zh ? '正在读取设备…' : 'Loading devices…';
+remotePeer.disabled = true;
+remoteFetch.disabled = true;
+let remoteBusy = false;
+
+function setRemoteStatus(message, error) {
+  const el = $('remote-capture-status');
+  el.textContent = message;
+  el.style.color = error ? 'var(--warn)' : 'var(--ok)';
+}
+
+function updateRemoteControls() {
+  const online = [...remotePeer.options].some(option => !option.disabled && option.value);
+  remotePeer.disabled = remoteBusy || !online;
+  remoteRefresh.disabled = remoteBusy;
+  remoteFetch.disabled = remoteBusy || !online || !remotePeer.value || remotePeer.selectedOptions[0]?.disabled;
+}
+
+function peerLabel(peer) {
+  const name = typeof peer.host === 'string' && peer.host.trim() ? peer.host.trim() : peer.node_id;
+  const addr = typeof peer.addr === 'string' && peer.addr.trim() ? ` (${peer.addr.trim()})` : '';
+  return `${name}${addr}`;
+}
+
+async function loadPeers() {
+  if (remoteBusy) return;
+  const previousNodeId = remotePeer.value;
+  remotePeer.replaceChildren();
+  const loading = document.createElement('option');
+  loading.textContent = zh ? '正在读取设备…' : 'Loading devices…';
+  loading.disabled = true;
+  loading.selected = true;
+  remotePeer.append(loading);
+  remotePeer.disabled = true;
+  remoteRefresh.disabled = true;
+  remoteFetch.disabled = true;
+  try {
+    const resp = await fetch('/v1/peers');
+    if (!resp.ok) throw new Error(resp.status);
+    const peers = await resp.json();
+    remotePeer.replaceChildren();
+    for (const peer of Array.isArray(peers) ? peers : []) {
+      if (!peer || typeof peer.node_id !== 'string' || !peer.node_id) continue;
+      const option = document.createElement('option');
+      option.value = peer.node_id;
+      option.textContent = peerLabel(peer);
+      option.disabled = peer.online === false;
+      remotePeer.append(option);
+    }
+    if (!remotePeer.options.length) {
+      const empty = document.createElement('option');
+      empty.textContent = zh ? '没有可用设备' : 'No devices available';
+      empty.disabled = true;
+      empty.selected = true;
+      remotePeer.append(empty);
+    }
+    const preserved = [...remotePeer.options].findIndex(option => option.value === previousNodeId && !option.disabled);
+    const firstOnline = [...remotePeer.options].findIndex(option => !option.disabled && option.value);
+    if (preserved >= 0) remotePeer.selectedIndex = preserved;
+    else if (firstOnline >= 0) remotePeer.selectedIndex = firstOnline;
+    updateRemoteControls();
+    if (firstOnline < 0) setRemoteStatus(zh ? '没有在线设备' : 'No online devices', true);
+  } catch (e) {
+    remotePeer.replaceChildren();
+    const failed = document.createElement('option');
+    failed.textContent = zh ? '读取设备失败' : 'Failed to load devices';
+    failed.disabled = true;
+    failed.selected = true;
+    remotePeer.append(failed);
+    remotePeer.disabled = true;
+    remoteRefresh.disabled = false;
+    remoteFetch.disabled = true;
+    setRemoteStatus((zh ? '读取设备失败：' : 'Failed to load devices: ') + e, true);
+  }
+}
+
+remotePeer.onchange = updateRemoteControls;
+remoteRefresh.onclick = () => loadPeers();
+remoteFetch.onclick = async () => {
+  const nodeId = remotePeer.value;
+  if (!nodeId || remoteFetch.disabled) return;
+  remoteBusy = true;
+  remoteFetch.disabled = true;
+  remotePeer.disabled = true;
+  remoteRefresh.disabled = true;
+  setRemoteStatus(zh ? '正在获取…' : 'Fetching…', false);
+  try {
+    const resp = await fetch('/v1/actions/fetch-clipboard', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ node_id: nodeId }),
+    });
+    if (!resp.ok) {
+      const detail = await resp.text();
+      if (resp.status === 403) throw new Error(zh ? '目标设备未开启“允许对端获取本机剪贴板”，请开启后重启服务。' : 'The target device has not enabled “Allow peers to fetch clipboard”; enable it and restart the service.');
+      throw new Error(`${resp.status} ${detail}`);
+    }
+    await resp.json();
+    setRemoteStatus(zh ? '已获取，请在历史中查看；本机剪贴板未改变。' : 'Fetched; check the history. Local clipboard unchanged.', false);
+    refresh();
+  } catch (e) {
+    setRemoteStatus((zh ? '获取失败：' : 'Fetch failed: ') + e, true);
+  } finally {
+    remoteBusy = false;
+    updateRemoteControls();
+  }
+};
+
+const nativeFiles = !!(window.ipc && window.ipc.postMessage);
+$('file-title').textContent = zh ? '拖入文件或文件夹，加入共享列表' : 'Drop files or folders to share';
+$('file-help').textContent = nativeFiles
+  ? (zh ? '可拖入此窗口，或点击下方选择。其他电脑按需下载；不改变剪贴板。请保留源文件直到下载完成。' : 'Drop into this window or select below. Peers download on demand; your clipboard stays unchanged. Keep source files until downloads finish.')
+  : (zh ? '请从托盘打开应用窗口以选择或拖入文件。浏览器不提供本机文件路径。' : 'Open the app window from the tray to select or drop files. Browser pages cannot provide local file paths.');
+$('pick-files').textContent = zh ? '选择文件' : 'Select files';
+$('pick-folder').textContent = zh ? '选择文件夹' : 'Select folder';
+for (const action of ['pick-files', 'pick-folder']) {
+  $(action).disabled = !nativeFiles;
+  $(action).onclick = () => window.ipc.postMessage(action);
+}
+window.nativeFileStatus = (message, error) => {
+  $('file-status').textContent = message;
+  $('file-status').style.color = error ? 'var(--warn)' : 'var(--ok)';
+  refresh();
+};
+// Prevent browser fallback from navigating away when a file is dropped.
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  if (!nativeFiles) show(zh ? '请在应用窗口中拖入文件' : 'Drop files in the app window', 'err');
+});
+q.placeholder = T.placeholder;
+showTab('timeline');
+loadPeers();
+refresh();
+</script>
+</body>
+</html>

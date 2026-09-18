@@ -1,0 +1,72 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/peercarry-core",
+    "crates/peercarry-cli",
+    "crates/peercarry-tray",
+    "crates/peercarry-automation",
+    "crates/peercarry-updater",
+]
+
+[workspace.package]
+version = "0.3.0"
+edition = "2021"
+license = "MIT"
+authors = ["PeerCarry contributors"]
+repository = "https://github.com/juliohuang/peercarry"
+
+[workspace.dependencies]
+peercarry-core = { path = "crates/peercarry-core" }
+
+# async
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "fs", "time", "process"] }
+tokio-util = { version = "0.7", features = ["io"] }
+futures-util = "0.3"
+
+# http
+axum = { version = "0.8", features = ["macros"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+tower-http = { version = "0.6", features = ["trace"] }
+
+# serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# storage
+redb = "2"
+
+# clipboard
+arboard = "3"
+
+# cli
+clap = { version = "4", features = ["derive"] }
+
+# tray
+tray-icon = "0.20"
+muda = "0.16"
+tao = "0.32"
+wry = "0.46"
+rfd = "0.15"
+
+# misc
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dirs = "6"
+tar = "0.4"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+hostname = "0.4"
+sysinfo = "0.33"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

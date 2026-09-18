@@ -1,0 +1,204 @@
+name: Release peercarry
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release-stable
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Workspace tests
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libxdo-dev libwebkit2gtk-4.1-dev
+      - run: cargo test --workspace --locked
+      - run: python -m pip install --disable-pip-version-check --no-cache-dir -r scripts/release/requirements.txt
+      - run: python -m unittest discover -s scripts/release -p 'test_*.py'
+
+  build:
+    name: Build ${{ matrix.triple }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2025
+            triple: x86_64-pc-windows-msvc
+            platform: Windows x64
+            extension: .exe
+          - runner: ubuntu-22.04
+            triple: x86_64-unknown-linux-gnu
+            platform: Linux x64
+            extension: ""
+          - runner: macos-14
+            triple: aarch64-apple-darwin
+            platform: macOS arm64
+            extension: ""
+          - runner: macos-15-intel
+            triple: x86_64-apple-darwin
+            platform: macOS Intel x64
+            extension: ""
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.triple }}
+      - name: Install Linux tray dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libxdo-dev libwebkit2gtk-4.1-dev
+      - name: Build binaries
+        shell: bash
+        env:
+          PEERCARRY_UPDATE_PUBLIC_KEY: ${{ vars.UPDATE_PUBLIC_KEY }}
+          PEERCARRY_UPDATE_GITHUB_URL: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
+          PEERCARRY_UPDATE_DOMESTIC_URL: ${{ vars.DOWNLOAD_BASE_URL && format('{0}/latest.json', vars.DOWNLOAD_BASE_URL) || '' }}
+        run: cargo build --locked --release --target "${{ matrix.triple }}" -p peercarry-tray -p peercarry-cli
+      - name: Package release files
+        shell: bash
+        env:
+          VERSION: ${{ github.ref_name }}
+          TRIPLE: ${{ matrix.triple }}
+          PLATFORM: ${{ matrix.platform }}
+          EXTENSION: ${{ matrix.extension }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          tray="target/${TRIPLE}/release/peercarry-tray${EXTENSION}"
+          cli="target/${TRIPLE}/release/peercarry${EXTENSION}"
+          test -f "$tray" && test -f "$cli"
+          cp "$tray" "dist/peercarry-tray-${TRIPLE}${EXTENSION}"
+          cp "$cli" "dist/peercarry-${TRIPLE}${EXTENSION}"
+          python3 scripts/release/package.py --version "$VERSION" --triple "$TRIPLE" --platform "$PLATFORM" --tray "$tray" --cli "$cli" --out-dir dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.triple }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish GitHub release and optional OSS mirror
+    needs: [build, test]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Install pinned signing dependency
+        run: python3 -m pip install --disable-pip-version-check --no-cache-dir -r scripts/release/requirements.txt
+      - name: Check signing key matches the configured update public key
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+          UPDATE_PUBLIC_KEY: ${{ vars.UPDATE_PUBLIC_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+          actual = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(os.environ['RELEASE_SIGNING_KEY'])).public_key().public_bytes_raw().hex()
+          expected = os.environ['UPDATE_PUBLIC_KEY'].lower()
+          if actual != expected:
+              raise SystemExit('RELEASE_SIGNING_KEY does not derive UPDATE_PUBLIC_KEY')
+          PY
+      - name: Build signed update manifest
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+          VERSION: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+          DOWNLOAD_BASE_URL: ${{ vars.DOWNLOAD_BASE_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          triples=(x86_64-pc-windows-msvc x86_64-unknown-linux-gnu aarch64-apple-darwin x86_64-apple-darwin)
+          args=()
+          for triple in "${triples[@]}"; do
+            file="dist/peercarry-tray-${triple}"
+            if [[ "$triple" == x86_64-pc-windows-msvc ]]; then file+=".exe"; fi
+            test -f "$file"
+            raw="$(basename "$file")"
+            args+=(--triple "$triple" "$file" "$raw")
+          done
+          python3 scripts/release/manifest.py build --version "$VERSION" --cargo-version Cargo.toml --notes "peercarry $VERSION" --base-url "https://github.com/${REPOSITORY}/releases/download/${VERSION}" "${args[@]}" --output dist/latest.json
+          if [[ -n "$DOWNLOAD_BASE_URL" ]]; then
+            python3 scripts/release/manifest.py build --version "$VERSION" --cargo-version Cargo.toml --notes "peercarry $VERSION" --base-url "${DOWNLOAD_BASE_URL}/v${VERSION#v}/raw" "${args[@]}" --output dist/latest-domestic.json
+          fi
+      - name: Verify manifest locally
+        env:
+          UPDATE_PUBLIC_KEY: ${{ vars.UPDATE_PUBLIC_KEY }}
+          DOWNLOAD_BASE_URL: ${{ vars.DOWNLOAD_BASE_URL }}
+        run: |
+          python3 scripts/release/manifest.py verify --manifest dist/latest.json --public-key "$UPDATE_PUBLIC_KEY"
+          if [ -f dist/latest-domestic.json ]; then
+            python3 scripts/release/manifest.py verify --manifest dist/latest-domestic.json --public-key "$UPDATE_PUBLIC_KEY"
+          fi
+      - name: Create GitHub release and upload artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release list --limit 100 --json tagName,isDraft,isPrerelease > published-releases.json
+          python3 scripts/release/validate_release.py --version "$VERSION" --published published-releases.json
+          draft="$(gh release view "$VERSION" --json isDraft --jq .isDraft 2>/dev/null || true)"
+          if [[ -z "$draft" ]]; then
+            gh release create "$VERSION" --verify-tag --draft --title "$VERSION" --generate-notes
+            draft=true
+          fi
+          if [[ "$draft" == true ]]; then
+            find dist -maxdepth 1 -type f ! -name 'latest*' -print0 | xargs -0 -r gh release upload "$VERSION" --clobber
+            gh release upload "$VERSION" dist/latest.json --clobber
+            gh release edit "$VERSION" --draft=false
+          else
+            tmp="$(mktemp -d)"
+            trap 'rm -rf "$tmp"' EXIT
+            gh release download "$VERSION" --dir "$tmp"
+            for file in dist/*; do
+              [[ "$(basename "$file")" == latest-domestic.json ]] && continue
+              name="$(basename "$file")"
+              test -f "$tmp/$name"
+              test "$(sha256sum "$file" | cut -d' ' -f1)" = "$(sha256sum "$tmp/$name" | cut -d' ' -f1)"
+            done
+          fi
+      - name: Upload optional OSS mirror (manifest last)
+        if: ${{ vars.OSS_BUCKET != '' && vars.OSS_ENDPOINT != '' && vars.DOWNLOAD_BASE_URL != '' && vars.OSS_OBJECT_PREFIX != '' }}
+        env:
+          OSS_BUCKET: ${{ vars.OSS_BUCKET }}
+          OSS_ENDPOINT: ${{ vars.OSS_ENDPOINT }}
+          OSS_PREFIX: ${{ vars.OSS_OBJECT_PREFIX }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          VERSION: ${{ github.ref_name }}
+          DOWNLOAD_BASE_URL: ${{ vars.DOWNLOAD_BASE_URL }}
+          DOMESTIC_MANIFEST: dist/latest-domestic.json
+        shell: bash
+        run: bash scripts/release/upload-oss.sh

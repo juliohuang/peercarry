@@ -1,0 +1,15 @@
+/target
+.DS_Store
+*.swp
+__pycache__/
+*.pyc
+
+# Local agent state and private runtime files
+.mimosa/
+.workbuddy/
+.agents/
+.codex/
+.env
+.env.*
+*.redb
+*.redb-*

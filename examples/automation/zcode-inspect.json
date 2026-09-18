@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "name": "ZCode inspect only",
+  "target": { "exe": "ZCode.exe", "title": "ZCode" },
+  "steps": [
+    { "id": "prompt", "action": "assert", "assertion": { "kind": "element_present", "selector": { "role": "edit", "name": "向 ZCode 提问，使用 @ 添加上下文，使用 / 选择命令或能力" } } },
+    { "id": "mode", "action": "assert", "assertion": { "kind": "element_present", "selector": { "role": "combo_box", "name": "切换模式" } } },
+    { "id": "effort", "action": "assert", "assertion": { "kind": "element_present", "selector": { "role": "combo_box", "name": "最高" } } },
+    { "id": "send", "action": "assert", "assertion": { "kind": "element_present", "selector": { "role": "button", "name": "发送" } } }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "name": "Windows fixture input and readback",
+  "target": { "exe": "powershell.exe", "title": "peercarry automation fixture" },
+  "steps": [
+    { "id": "focus", "action": "focus", "selector": { "role": "edit", "name": "Automation Prompt" } },
+    { "id": "input", "action": "input_text", "value": { "kind": "literal", "value": "自动化 Fixture ABC 123" } },
+    { "id": "verify", "action": "assert", "assertion": { "kind": "text_equals", "selector": { "role": "edit", "name": "Automation Prompt" }, "expected": "自动化 Fixture ABC 123" } }
+  ]
+}
