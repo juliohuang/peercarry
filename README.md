@@ -1,6 +1,9 @@
 # PeerCarry · 随传
 
 [下载安装包](https://github.com/juliohuang/peercarry/releases/latest)：Windows x64、Linux x64、macOS Intel / Apple Silicon。
+**Windows 推荐下载 `PeerCarry-版本号-windows-x64-Setup.exe`，双击安装，无需 Rust 或 PowerShell 命令。**
+默认 Compact（精简）模式只安装托盘程序；需要命令行或 AI Hook 时选 Full。可选开机启动、桌面快捷方式，支持系统设置中卸载，保留用户配置和历史。
+安装包将可选 CLI 一并压缩，离线安装也可选择完整模式。ZIP 留给便携使用和高级用户；旧版 CLI 不会因选择精简模式被删除。
 从 v0.3.1 起，运行托盘后约一分钟自动检查更新，之后默认每六小时检查；发现新版时提醒，通过托盘「更新并重启」确认安装。
 设置页可关闭自动检查或调整周期。签名与校验失败不会安装，启动失败会尝试回滚。CLI 守护进程不执行托盘自动检查，独立 CLI 请用完整安装包更新。
 

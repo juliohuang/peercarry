@@ -97,6 +97,21 @@ jobs:
           cp "$tray" "dist/peercarry-tray-${TRIPLE}${EXTENSION}"
           cp "$cli" "dist/peercarry-${TRIPLE}${EXTENSION}"
           python3 scripts/release/package.py --version "$VERSION" --triple "$TRIPLE" --platform "$PLATFORM" --tray "$tray" --cli "$cli" --out-dir dist
+      - name: Build Windows desktop installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe") -and -not (Get-Command ISCC.exe -ErrorAction SilentlyContinue)) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' }
+          }
+          ./scripts/release/build-windows-installer.ps1 -Version '${{ github.ref_name }}' -BinaryDir 'target/${{ matrix.triple }}/release' -OutputDir dist
+      - name: Test Windows installer lifecycle
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem dist/*-Setup.exe | Select-Object -First 1
+          ./scripts/tests/windows-installer-smoke.ps1 -Installer $installer.FullName
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.triple }}
