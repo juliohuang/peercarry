@@ -597,12 +597,12 @@ fn select<'a>(entries: &'a [Entry], selector: Option<&str>) -> Result<&'a Entry>
 // ----------------------------------------------------------------- commands
 
 async fn cmd_serve(config: Config) -> Result<()> {
-    // Self-restart handoff: wait for the old process to release the port.
+    // Wait for the prior process to release its listener and redb lock.
     if std::env::var_os("PEERCARRY_RESTART").is_some() {
-        peercarry_core::server::wait_for_local_port(
+        peercarry_core::server::wait_for_restart_handoff(
             config.network.port,
             std::time::Duration::from_secs(10),
-        );
+        )?;
     }
     let bind = peercarry_core::server::bind_addr(&config).await;
     println!(

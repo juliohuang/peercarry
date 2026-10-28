@@ -1,14 +1,13 @@
 //! Menu and status strings, picked to match the system language.
 //!
-//! Only the tray app is translated: CLI output is meant to be greppable and
+//! The tray and its embedded windows share a language. CLI output is greppable and
 //! stable across machines, so it stays in English and exposes `--json` for
 //! anything that needs parsing.
 
 use std::sync::OnceLock;
 
 pub fn choose(zh: &'static str, en: &'static str) -> &'static str {
-    static LANGUAGE: OnceLock<Lang> = OnceLock::new();
-    match LANGUAGE.get_or_init(Lang::detect) {
+    match Lang::current() {
         Lang::Zh => zh,
         Lang::En => en,
     }
@@ -21,6 +20,11 @@ pub enum Lang {
 }
 
 impl Lang {
+    pub fn current() -> Self {
+        static LANGUAGE: OnceLock<Lang> = OnceLock::new();
+        *LANGUAGE.get_or_init(Self::detect)
+    }
+
     pub fn code(self) -> &'static str {
         match self {
             Self::Zh => "zh",
@@ -35,15 +39,19 @@ impl Lang {
     pub fn detect() -> Self {
         // An empty variable is "not set" - a shell that exports FOO= would
         // otherwise pin the language to English.
-        if let Some(tag) = locale_var("PEERCARRY_LANG") {
+        if let Some(tag) = std::env::var("PEERCARRY_LANG")
+            .ok()
+            .filter(|tag| !tag.trim().is_empty())
+        {
             return Self::from_tag(&tag);
         }
-        for key in ["LC_ALL", "LANG", "LANGUAGE"] {
-            if let Some(tag) = locale_var(key) {
-                return Self::from_tag(&tag);
-            }
-        }
-        // A GUI app inherits no locale from launchd, so ask the system.
+        #[cfg(target_os = "linux")]
+        return Self::from_linux_env(
+            linux_env("LANGUAGE").as_deref(),
+            linux_env("LC_ALL").as_deref(),
+            linux_env("LC_MESSAGES").as_deref(),
+            linux_env("LANG").as_deref(),
+        );
         #[cfg(target_os = "macos")]
         if let Some(tag) = macos_locale() {
             return Self::from_tag(&tag);
@@ -52,14 +60,37 @@ impl Lang {
         if let Some(tag) = windows_locale() {
             return Self::from_tag(&tag);
         }
+        #[cfg(not(target_os = "linux"))]
         Self::En
     }
 
-    /// Anything starting with `zh` is Chinese; the rest falls back to English
+    #[cfg(any(target_os = "linux", test))]
+    fn from_linux_env(
+        language: Option<&str>,
+        all: Option<&str>,
+        messages: Option<&str>,
+        lang: Option<&str>,
+    ) -> Self {
+        let locale = all.or(messages).or(lang);
+        if locale.is_some_and(is_c_locale) {
+            return Self::En;
+        }
+        if let Some(preferred) = language
+            .filter(|value| !value.trim().is_empty())
+            .and_then(|value| value.split(':').next())
+            .filter(|value| !value.trim().is_empty())
+        {
+            return Self::from_tag(preferred);
+        }
+        locale.map(Self::from_tag).unwrap_or(Self::En)
+    }
+
+    /// The `zh` language family is Chinese; the rest falls back to English
     /// rather than guessing at a language we have no strings for.
     fn from_tag(tag: &str) -> Self {
-        let tag = tag.trim().to_lowercase();
-        if tag.starts_with("zh") || tag.contains("zh_hans") || tag.contains("zh-hans") {
+        let tag = tag.trim().split(['.', '@']).next().unwrap_or("");
+        let primary = tag.split(['-', '_']).next().unwrap_or("");
+        if primary.eq_ignore_ascii_case("zh") {
             Self::Zh
         } else {
             Self::En
@@ -67,52 +98,78 @@ impl Lang {
     }
 }
 
-/// A locale variable, ignoring empty values and the POSIX/C placeholders.
-fn locale_var(key: &str) -> Option<String> {
-    let tag = std::env::var(key).ok()?;
-    let tag = tag.trim();
-    if tag.is_empty() || tag == "C" || tag == "POSIX" {
-        return None;
-    }
-    Some(tag.to_string())
+/// Whether gettext should suppress `LANGUAGE` because the message locale is C/POSIX.
+#[cfg(any(target_os = "linux", test))]
+fn is_c_locale(value: &str) -> bool {
+    let base = value.trim().split(['.', '@']).next().unwrap_or("");
+    matches!(base.to_ascii_uppercase().as_str(), "C" | "POSIX")
+}
+
+#[cfg(target_os = "linux")]
+fn linux_env(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
 }
 
 #[cfg(target_os = "macos")]
 fn macos_locale() -> Option<String> {
-    let out = std::process::Command::new("defaults")
-        .args(["read", "-g", "AppleLocale"])
-        .output()
-        .ok()?;
-    if !out.status.success() {
+    use objc2_foundation::NSLocale;
+
+    let languages = NSLocale::preferredLanguages();
+    if languages.count() == 0 {
         return None;
     }
-    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    Some(languages.objectAtIndex(0).to_string())
 }
 
-/// `reg.exe` rather than a windows-sys dependency: the crate already shells
-/// out to `reg` for the Run key, and this avoids pulling in a large binding
-/// for one call.
 #[cfg(target_os = "windows")]
 fn windows_locale() -> Option<String> {
-    let out = std::process::Command::new("reg")
-        .args([
-            "query",
-            r"HKCU\Control Panel\International",
-            "/v",
-            "LocaleName",
-        ])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
+    use windows::core::PWSTR;
+    use windows::Win32::Globalization::{
+        GetUserDefaultUILanguage, GetUserPreferredUILanguages, LCIDToLocaleName, MUI_LANGUAGE_NAME,
+    };
+
+    unsafe {
+        let mut count = 0;
+        let mut length = 0;
+        if GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &mut count, None, &mut length).is_ok()
+            && length > 1
+        {
+            let mut buffer = vec![0u16; length as usize];
+            if GetUserPreferredUILanguages(
+                MUI_LANGUAGE_NAME,
+                &mut count,
+                Some(PWSTR(buffer.as_mut_ptr())),
+                &mut length,
+            )
+            .is_ok()
+            {
+                let first = buffer.split(|unit| *unit == 0).next()?;
+                if !first.is_empty() {
+                    return String::from_utf16(first).ok();
+                }
+            }
+        }
+        let mut locale = [0u16; 85];
+        let size = LCIDToLocaleName(GetUserDefaultUILanguage() as u32, Some(&mut locale), 0);
+        if size > 1 {
+            String::from_utf16(&locale[..size as usize - 1]).ok()
+        } else {
+            None
+        }
     }
-    let text = String::from_utf8_lossy(&out.stdout);
-    // Output is a few header lines then "LocaleName    REG_SZ    zh-CN".
-    text.lines()
-        .filter(|l| l.contains("REG_SZ"))
-        .next_back()
-        .and_then(|line| line.split_whitespace().next_back())
-        .map(|s| s.to_string())
+}
+
+pub fn initialization_script() -> &'static str {
+    initialization_script_for(Lang::current())
+}
+
+fn initialization_script_for(language: Lang) -> &'static str {
+    match language {
+        Lang::Zh => "window.__PEERCARRY_LANG__ = 'zh';",
+        Lang::En => "window.__PEERCARRY_LANG__ = 'en';",
+    }
 }
 
 /// Every user visible string in the tray app.
@@ -133,6 +190,8 @@ pub struct Ui {
     pub empty: &'static str,
     pub recent_header: &'static str,
     pub devices_header: &'static str,
+    pub quick_panel: &'static str,
+    pub quick_hotkey_unavailable: &'static str,
 
     pub captured: &'static str,
     pub already_captured: &'static str,
@@ -173,6 +232,8 @@ static EN: Ui = Ui {
     empty: "(no entries - capture one first)",
     recent_header: "Recent · 10 min  (click = clipboard)",
     devices_header: "Devices · last 12 h",
+    quick_panel: "Quick actions…",
+    quick_hotkey_unavailable: "Quick panel hotkey unavailable; open it from the tray menu",
 
     captured: "captured {} · {}",
     already_captured: "already in history · {}",
@@ -213,6 +274,8 @@ static ZH: Ui = Ui {
     empty: "（暂无条目 —— 先抓取一条）",
     recent_header: "最近 · 10 分钟（点击即复制）",
     devices_header: "按设备 · 12 小时内",
+    quick_panel: "快捷操作…",
+    quick_hotkey_unavailable: "快捷面板全局快捷键不可用；可从托盘菜单打开",
 
     captured: "已抓取 {} · {}",
     already_captured: "已在历史中 · {}",
@@ -257,14 +320,20 @@ pub fn fill(template: &str, args: &[&str]) -> String {
     out
 }
 
-static LANG: OnceLock<Lang> = OnceLock::new();
-
 /// Strings for the detected language. Detected once per process.
 pub fn ui() -> &'static Ui {
-    match LANG.get_or_init(Lang::detect) {
+    match Lang::current() {
         Lang::Zh => &ZH,
         Lang::En => &EN,
     }
+}
+
+pub fn quick_panel_label() -> String {
+    #[cfg(target_os = "macos")]
+    let shortcut = "⇧⌘Space";
+    #[cfg(not(target_os = "macos"))]
+    let shortcut = "Ctrl+Shift+Space";
+    format!("{}  {shortcut}", ui().quick_panel)
 }
 
 #[cfg(test)]
@@ -280,9 +349,66 @@ mod tests {
 
     #[test]
     fn falls_back_to_english() {
-        for tag in ["en_US.UTF-8", "C", "POSIX", "", "ja_JP", "de_DE"] {
+        for tag in [
+            "en_US.UTF-8",
+            "C",
+            "POSIX",
+            "",
+            "ja_JP",
+            "de_DE",
+            "zhang_CN",
+        ] {
             assert_eq!(Lang::from_tag(tag), Lang::En, "{tag}");
         }
+    }
+
+    #[test]
+    fn locale_precedence_and_primary_language_work() {
+        assert_eq!(
+            Lang::from_linux_env(
+                Some("zh_CN:en_US"),
+                Some("en_US"),
+                Some("ja_JP"),
+                Some("de_DE")
+            ),
+            Lang::Zh
+        );
+        assert_eq!(
+            Lang::from_linux_env(Some("zh_CN"), Some("C"), Some("zh_CN"), Some("zh_CN")),
+            Lang::En
+        );
+        assert_eq!(
+            Lang::from_linux_env(Some("zh_CN"), Some("C.UTF-8"), Some("zh_CN"), Some("zh_CN")),
+            Lang::En
+        );
+        assert_eq!(
+            Lang::from_linux_env(Some("ja_JP:zh_CN"), None, Some("en_US"), Some("zh_CN")),
+            Lang::En
+        );
+        assert_eq!(
+            Lang::from_linux_env(None, None, Some("zh_Hans_CN.UTF-8"), Some("en_US")),
+            Lang::Zh
+        );
+    }
+
+    #[test]
+    fn initialization_script_uses_the_shared_language_codes() {
+        assert_eq!(
+            initialization_script_for(Lang::Zh),
+            "window.__PEERCARRY_LANG__ = 'zh';"
+        );
+        assert_eq!(
+            initialization_script_for(Lang::En),
+            "window.__PEERCARRY_LANG__ = 'en';"
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_returns_a_display_language() {
+        let locale = windows_locale().expect("Windows should expose a UI language");
+        assert!(!locale.is_empty());
+        assert!(!locale.contains('\0'));
     }
 
     #[test]
@@ -302,6 +428,8 @@ mod tests {
             EN.quit,
             EN.recent_header,
             EN.devices_header,
+            EN.quick_panel,
+            EN.quick_hotkey_unavailable,
             EN.timeline,
         ] {
             assert!(!field.is_empty());
@@ -320,6 +448,8 @@ mod tests {
             ZH.quit,
             ZH.recent_header,
             ZH.devices_header,
+            ZH.quick_panel,
+            ZH.quick_hotkey_unavailable,
             ZH.timeline,
         ] {
             assert!(!field.is_empty());

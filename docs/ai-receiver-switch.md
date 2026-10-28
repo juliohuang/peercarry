@@ -1,0 +1,9 @@
+﻿# AI notification receiver switching
+
+The local tray controls the receiver through the loopback-only `POST /v1/ai/receiver` endpoint with `{"enabled":true|false}`. With no AI token configured (or one shorter than 32 bytes), this remains a local-only setting.
+
+With a configured AI token, selecting this computer creates a new declaration. The daemon publishes that bounded declaration through read-only `GET /v1/ai/receiver-selection`; when no selection exists, the supported endpoint returns `200 null`. Peer polling authenticates using the existing shared token or AI token rule. A declaration contains only `device_id`, `display_name`, `counter`, `operation_id`, `enabled`, and an opaque SHA-256 token-group fingerprint; it contains no event content, URL, path, or token. Concurrent operations are ordered by `(counter, operation_id)`, never by wall clock. A local disable only publishes a release if this device owns the current declaration.
+
+The overview endpoint returns `receiver_enabled`, `receiver_selection`, and `receiver_sync`. `receiver_sync.status` is `local_only`, `pending`, `synced`, or `partial`; `receiver_sync.devices` maps Tailscale node IDs to `synced`, `pending`, `unsupported`, or `offline`. A device is `synced` only after it echoes the exact current declaration. `partial` and `unsupported` mean global uniqueness is not confirmed. Older peers return 404 for the new read endpoint and are reported as unsupported; that response does not mean they were switched off.
+
+Switching is eventually consistent and requires peer polling/connectivity. Each daemon only trusts declarations matching the currently configured AI token group. Changing the token invalidates stored group state. Newly selected receivers suppress one polling batch of prior events to avoid replaying old alerts. The local setting continues to work without cross-device sync.

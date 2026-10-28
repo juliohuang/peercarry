@@ -32,6 +32,7 @@ struct UploadState {
     root: PathBuf,
     inner: Arc<Mutex<Inner>>,
     unavailable: bool,
+    paired: bool,
 }
 #[derive(Default)]
 struct Inner {
@@ -39,7 +40,7 @@ struct Inner {
     reserved: u64,
 }
 #[derive(Clone)]
-struct Owner(String);
+pub(crate) struct Owner(pub(crate) String);
 #[derive(Clone, Serialize, Deserialize)]
 struct Session {
     request_id: String,
@@ -208,11 +209,22 @@ fn load(s: &UploadState) -> std::io::Result<Inner> {
 }
 
 pub fn router(app: AppState) -> Router<AppState> {
+    upload_router(app, paths::data_dir().join("mobile-uploads"), false)
+}
+
+// Only mounted behind the certificate-pinned gateway's device authentication.
+// The owner extension is assigned in-process, never accepted from HTTP headers.
+pub(crate) fn paired_router(app: AppState) -> Router<AppState> {
+    upload_router(app, paths::data_dir().join("paired-uploads"), true)
+}
+
+fn upload_router(app: AppState, root: PathBuf, paired: bool) -> Router<AppState> {
     let mut s = UploadState {
         app,
-        root: paths::data_dir().join("mobile-uploads"),
+        root,
         inner: Arc::new(Mutex::new(Inner::default())),
         unavailable: false,
+        paired,
     };
     if s.app.config.mobile.enabled {
         match load(&s) {
@@ -239,6 +251,18 @@ pub fn router(app: AppState) -> Router<AppState> {
 async fn authorize(State(s): State<UploadState>, mut req: Request, next: Next) -> Response {
     if !s.app.config.mobile.enabled {
         return missing();
+    }
+    if s.paired {
+        if req.extensions().get::<Owner>().is_none() {
+            return error(StatusCode::UNAUTHORIZED, "paired device required");
+        }
+        if s.unavailable || s.app.config.mobile.validate().is_err() {
+            return error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "mobile uploads unavailable",
+            );
+        }
+        return next.run(req).await;
     }
     let id = req
         .headers()

@@ -10,6 +10,7 @@ use futures_util::stream::{self, StreamExt};
 use reqwest::StatusCode;
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
+use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
 use crate::error::{Error, Result};
@@ -89,11 +90,27 @@ impl PeerClient {
         let url = format!("{}/v1/hello", addr.trim_end_matches('/'));
         let resp = self.request(reqwest::Method::GET, &url).send().await?;
         if !resp.status().is_success() {
+            if matches!(
+                resp.status(),
+                StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
+            ) {
+                return Err(Error::Unauthorized);
+            }
+            if resp.status() == StatusCode::NOT_FOUND {
+                return Err(Error::NotFound(format!("peer hello endpoint on {addr}")));
+            }
+            if resp.status().is_client_error() {
+                return Err(Error::Network(format!(
+                    "peer {addr} rejected hello: {}",
+                    resp.status()
+                )));
+            }
             return Err(Error::PeerUnreachable {
                 peer: addr.to_string(),
             });
         }
-        Ok(resp.json().await?)
+        let hello: protocol::HelloResponse = resp.json().await?;
+        Ok(hello)
     }
 
     /// Explicitly request a fresh capture; never substitutes an old history item.
@@ -289,6 +306,22 @@ impl PeerClient {
         index: usize,
         dest_dir: &Path,
     ) -> Result<PathBuf> {
+        self.download_file_observed(addr, entry_id, index, dest_dir, None, None)
+            .await
+    }
+
+    /// Download with optional byte progress reporting and cooperative cancel.
+    /// Progress reports bytes already present in the resumable part plus new
+    /// bytes written; total is `None` until the response provides it.
+    pub async fn download_file_observed(
+        &self,
+        addr: &str,
+        entry_id: &str,
+        index: usize,
+        dest_dir: &Path,
+        progress: Option<&(dyn Fn(u64, Option<u64>) + Send + Sync)>,
+        cancel: Option<&CancellationToken>,
+    ) -> Result<PathBuf> {
         let url = protocol::entry_file_url(addr, entry_id, index);
         tokio::fs::create_dir_all(dest_dir).await?;
         let dest_dir = tokio::fs::canonicalize(dest_dir).await?;
@@ -308,7 +341,7 @@ impl PeerClient {
             key: guard_key,
             set: guard,
         };
-        self.download_file_inner(&url, entry_id, index, &dest_dir)
+        self.download_file_inner(&url, entry_id, index, &dest_dir, progress, cancel)
             .await
     }
 
@@ -318,6 +351,8 @@ impl PeerClient {
         entry_id: &str,
         index: usize,
         dest_dir: &Path,
+        progress: Option<&(dyn Fn(u64, Option<u64>) + Send + Sync)>,
+        cancel: Option<&CancellationToken>,
     ) -> Result<PathBuf> {
         let mut restarted = false;
         let hash = hex::encode(Sha256::digest(url.as_bytes()));
@@ -444,6 +479,9 @@ impl PeerClient {
                 name: name.clone(),
             };
             write_download_meta(&meta_path, &new_meta).await?;
+            if cancel.is_some_and(CancellationToken::is_cancelled) {
+                return Err(Error::Network("download cancelled".into()));
+            }
             write_response_to_part(
                 resp,
                 &part,
@@ -451,6 +489,8 @@ impl PeerClient {
                 total,
                 self.max_transfer_bytes,
                 self.transfer_idle_timeout,
+                progress,
+                cancel,
             )
             .await?;
             if let Some(etag) = etag.as_deref() {
@@ -482,12 +522,19 @@ impl PeerClient {
                     let _ = tokio::fs::remove_dir_all(&stage).await;
                     return Err(Error::Network(format!("cannot unpack tar: {e}")));
                 }
+                if cancel.is_some_and(CancellationToken::is_cancelled) {
+                    let _ = tokio::fs::remove_dir_all(&stage).await;
+                    return Err(Error::Network("download cancelled".into()));
+                }
                 let dest = unique_path(dest_dir, &name);
                 tokio::fs::rename(&stage, &dest).await?;
                 remove_partial(&part, &meta_path).await;
                 return Ok(dest);
             }
             let dest = unique_path(dest_dir, &name);
+            if cancel.is_some_and(CancellationToken::is_cancelled) {
+                return Err(Error::Network("download cancelled".into()));
+            }
             match tokio::fs::hard_link(&part, &dest).await {
                 Ok(()) => {
                     remove_partial(&part, &meta_path).await;
@@ -753,6 +800,8 @@ async fn write_response_to_part(
     total: u64,
     limit: u64,
     idle: Duration,
+    progress: Option<&(dyn Fn(u64, Option<u64>) + Send + Sync)>,
+    cancel: Option<&CancellationToken>,
 ) -> Result<()> {
     let mut stream = resp.bytes_stream();
     let mut file = if append {
@@ -768,13 +817,27 @@ async fn write_response_to_part(
     } else {
         0
     };
+    if let Some(progress) = progress {
+        progress(written, (total > 0).then_some(total));
+    }
     loop {
-        let next = match tokio::time::timeout(idle, stream.next()).await {
-            Ok(next) => next,
-            Err(_) => {
-                let _ = file.flush().await;
-                return Err(Error::Network("transfer idle timeout".into()));
-            }
+        if cancel.is_some_and(CancellationToken::is_cancelled) {
+            let _ = file.flush().await;
+            let _ = file.sync_all().await;
+            return Err(Error::Network("download cancelled".into()));
+        }
+        let next = match cancel {
+            Some(token) => tokio::select! {
+                _ = token.cancelled() => { let _=file.flush().await;let _=file.sync_all().await;return Err(Error::Network("download cancelled".into())); }
+                result = tokio::time::timeout(idle, stream.next()) => match result { Ok(next)=>next,Err(_)=>{let _=file.flush().await;return Err(Error::Network("transfer idle timeout".into()));} }
+            },
+            None => match tokio::time::timeout(idle, stream.next()).await {
+                Ok(next) => next,
+                Err(_) => {
+                    let _ = file.flush().await;
+                    return Err(Error::Network("transfer idle timeout".into()));
+                }
+            },
         };
         let Some(chunk) = next else {
             break;
@@ -797,6 +860,9 @@ async fn write_response_to_part(
         if let Err(e) = file.write_all(&chunk).await {
             let _ = file.flush().await;
             return Err(e.into());
+        }
+        if let Some(progress) = progress {
+            progress(written, (total > 0).then_some(total));
         }
     }
     file.flush().await?;
@@ -844,6 +910,7 @@ mod tests {
         Router,
     };
     use std::sync::{
+        atomic::AtomicU64,
         atomic::{AtomicUsize, Ordering},
         Arc,
     };
@@ -987,22 +1054,47 @@ mod tests {
         let client = PeerClient::new(&cfg).unwrap();
         let dir = std::env::temp_dir().join(format!("peercarry-cancel-{}", uuid::Uuid::new_v4()));
         let base = format!("http://{addr}");
-        let cancelled = tokio::time::timeout(
-            Duration::from_millis(250),
-            client.download_file(&base, "cancel", 0, &dir),
-        )
-        .await;
-        assert!(cancelled.is_err(), "first transfer should be cancelled");
+        let cancellation = CancellationToken::new();
+        let cancel_from_progress = cancellation.clone();
+        let first_progress = move |bytes: u64, _total: Option<u64>| {
+            if bytes >= 8 {
+                cancel_from_progress.cancel();
+            }
+        };
+        let cancelled = client
+            .download_file_observed(
+                &base,
+                "cancel",
+                0,
+                &dir,
+                Some(&first_progress),
+                Some(&cancellation),
+            )
+            .await;
+        assert!(
+            cancelled.is_err(),
+            "first transfer should be cancelled immediately after progress"
+        );
         assert!(!dir.join("cancel.bin").exists());
         let url = protocol::entry_file_url(&base, "cancel", 0);
         let hash = hex::encode(Sha256::digest(url.as_bytes()));
         let part = dir.join(format!(".peercarry-{hash}.part"));
         assert!(tokio::fs::metadata(&part).await.unwrap().len() >= 8);
+        let progress_bytes = Arc::new(AtomicU64::new(0));
+        let progress_total = Arc::new(AtomicU64::new(0));
+        let bytes_ref = progress_bytes.clone();
+        let total_ref = progress_total.clone();
+        let report = move |bytes: u64, total: Option<u64>| {
+            bytes_ref.store(bytes, Ordering::SeqCst);
+            total_ref.store(total.unwrap_or(0), Ordering::SeqCst);
+        };
         let final_path = client
-            .download_file(&base, "cancel", 0, &dir)
+            .download_file_observed(&base, "cancel", 0, &dir, Some(&report), None)
             .await
             .unwrap();
         assert_eq!(tokio::fs::read(final_path).await.unwrap(), payload);
+        assert_eq!(progress_bytes.load(Ordering::SeqCst), payload.len() as u64);
+        assert_eq!(progress_total.load(Ordering::SeqCst), payload.len() as u64);
         assert_eq!(calls.load(Ordering::SeqCst), 2);
         let _ = tokio::fs::remove_dir_all(&dir).await;
         server.abort();

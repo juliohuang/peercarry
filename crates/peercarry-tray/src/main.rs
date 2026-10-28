@@ -13,6 +13,7 @@
 
 mod auto_update;
 mod i18n;
+mod quick_panel;
 mod update_install;
 
 use std::collections::{HashMap, HashSet};
@@ -21,6 +22,10 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use chrono::{Duration, Utc};
+use global_hotkey::{
+    hotkey::{Code, HotKey, Modifiers},
+    GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState,
+};
 use tao::event::{Event, StartCause};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
@@ -75,6 +80,8 @@ enum UserEvent {
     Error(String),
     /// Resolved clipboard payload, to be written on the main thread.
     Write(Box<ClipboardWrite>),
+    CloseQuickPanel,
+    OpenQuickPanel,
 }
 
 enum Command {
@@ -184,6 +191,25 @@ fn fill_window(window: &tao::window::Window, webview: &wry::WebView) {
     });
 }
 
+fn show_quick_panel(
+    quick_ui: &mut Option<(tao::window::Window, wry::WebView)>,
+    target: &tao::event_loop::EventLoopWindowTarget<UserEvent>,
+    port: u16,
+    proxy: EventLoopProxy<UserEvent>,
+) {
+    match quick_ui {
+        Some((window, webview)) => {
+            window.set_visible(true);
+            window.set_focus();
+            let _ = webview.evaluate_script("window.quickPanelRefresh?.()");
+        }
+        None => match quick_panel::build(target, port, proxy) {
+            Ok(ui) => *quick_ui = Some(ui),
+            Err(error) => tracing::error!("quick panel failed: {error}"),
+        },
+    }
+}
+
 fn build_app_window(
     target: &tao::event_loop::EventLoopWindowTarget<UserEvent>,
     port: u16,
@@ -200,6 +226,7 @@ fn build_app_window(
     let navigation_url = url.clone();
     let drop_proxy = proxy.clone();
     let webview = wry::WebViewBuilder::new()
+        .with_initialization_script(i18n::initialization_script())
         .with_url(url)
         .with_navigation_handler(move |url| url == navigation_url)
         .with_ipc_handler(move |request| {
@@ -212,6 +239,14 @@ fn build_app_window(
                 }
                 "pick-folder" => {
                     let _ = proxy.send_event(UserEvent::PickFiles(true));
+                }
+                json if serde_json::from_str::<serde_json::Value>(json)
+                    .ok()
+                    .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(str::to_owned))
+                    .as_deref()
+                    == Some("quick-panel") =>
+                {
+                    let _ = proxy.send_event(UserEvent::OpenQuickPanel);
                 }
                 _ => {}
             }
@@ -610,6 +645,12 @@ fn render(tray: &TrayIcon, state: &mut AppState) -> Result<()> {
     menu.append(&MenuItem::with_id(
         "timeline",
         i18n::ui().timeline,
+        true,
+        None,
+    ))?;
+    menu.append(&MenuItem::with_id(
+        "quick-panel",
+        i18n::quick_panel_label(),
         true,
         None,
     ))?;
@@ -1050,14 +1091,14 @@ fn main() -> Result<()> {
 
     let config = Arc::new(Config::load()?);
     // Self-restart handoff (`POST /v1/actions/restart`): the fresh process
-    // starts while the old one is still exiting, so hold here until the
-    // port - and with it the store lock - is free.
+    // starts while the old one is still exiting; the saved config may select
+    // another port, so wait for the old process before opening its store.
     if std::env::var_os("PEERCARRY_RESTART").is_some() {
-        server::wait_for_local_port(config.network.port, std::time::Duration::from_secs(10));
+        server::wait_for_restart_handoff(config.network.port, std::time::Duration::from_secs(10))?;
     }
     paths::ensure_layout()?;
     // Worth logging: the menu language surprises people otherwise.
-    tracing::info!("menu language: {}", i18n::Lang::detect().code());
+    tracing::info!("desktop language: {}", i18n::Lang::current().code());
 
     let rt = Arc::new(
         tokio::runtime::Builder::new_multi_thread()
@@ -1127,9 +1168,10 @@ fn main() -> Result<()> {
     // the runtime hosts the native file-dialog futures.
     let menu_engine = engine.clone();
     let ai_proxy = proxy.clone();
+    let ai_config = config.clone();
     rt.spawn(async move {
         loop {
-            if let Some(message) = peercarry_core::ai_monitor::take_alert() {
+            if let Some(message) = peercarry_core::ai_monitor::take_alert(&ai_config) {
                 let _ = ai_proxy.send_event(UserEvent::Status(message.clone()));
                 rfd::AsyncMessageDialog::new()
                     .set_title("peercarry · AI")
@@ -1156,7 +1198,6 @@ fn main() -> Result<()> {
         .map_err(|e| anyhow!("cannot create tray icon: {e}"))?;
 
     let mut state = AppState::default();
-    render(&tray, &mut state)?;
     let _ = tx.send(Command::Refresh);
 
     let loop_tx = tx.clone();
@@ -1165,7 +1206,40 @@ fn main() -> Result<()> {
     // The app window with the timeline + settings page; one instance, the
     // menu item focuses it when it is already open.
     let mut app_ui: Option<(tao::window::Window, wry::WebView)> = None;
+    let mut quick_ui: Option<(tao::window::Window, wry::WebView)> = None;
+    #[cfg(target_os = "macos")]
+    let quick_hotkey = HotKey::new(Some(Modifiers::META | Modifiers::SHIFT), Code::Space);
+    #[cfg(not(target_os = "macos"))]
+    let quick_hotkey = HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
+    // Conflicts and unsupported Linux Wayland sessions are non-fatal; the
+    // tray menu and main-window button remain available.
+    let hotkey_proxy = proxy.clone();
+    let hotkeys = match GlobalHotKeyManager::new() {
+        Ok(manager) => match manager.register(quick_hotkey) {
+            Ok(()) => {
+                GlobalHotKeyEvent::set_event_handler(Some(move |event: GlobalHotKeyEvent| {
+                    if event.id == quick_hotkey.id() && event.state == HotKeyState::Pressed {
+                        let _ = hotkey_proxy.send_event(UserEvent::OpenQuickPanel);
+                    }
+                }));
+                Some(manager)
+            }
+            Err(error) => {
+                tracing::warn!("quick panel shortcut unavailable: {error}");
+                None
+            }
+        },
+        Err(error) => {
+            tracing::warn!("quick panel shortcut unavailable: {error}");
+            None
+        }
+    };
+    if hotkeys.is_none() {
+        state.status = i18n::ui().quick_hotkey_unavailable.to_string();
+    }
+    render(&tray, &mut state)?;
     event_loop.run(move |event, target, control_flow| {
+        let _ = &hotkeys;
         *control_flow = ControlFlow::Wait;
 
         match event {
@@ -1196,6 +1270,9 @@ fn main() -> Result<()> {
                 if app_ui.as_ref().is_some_and(|(w, _)| w.id() == window_id) {
                     app_ui = None;
                 }
+                if quick_ui.as_ref().is_some_and(|(w, _)| w.id() == window_id) {
+                    quick_ui = None;
+                }
             }
             // The embedded web view does not track the window by itself.
             Event::WindowEvent {
@@ -1206,6 +1283,20 @@ fn main() -> Result<()> {
                 if let Some((window, webview)) = &app_ui {
                     if window.id() == window_id {
                         fill_window(window, webview);
+                    }
+                }
+                if let Some((window, webview)) = &quick_ui {
+                    if window.id() == window_id {
+                        let size = window.inner_size();
+                        let _ = webview.set_bounds(wry::Rect {
+                            position: wry::dpi::Position::Physical(
+                                wry::dpi::PhysicalPosition::new(0, 0),
+                            ),
+                            size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                                size.width,
+                                size.height,
+                            )),
+                        });
                     }
                 }
             }
@@ -1266,6 +1357,9 @@ fn main() -> Result<()> {
                             }
                         },
                     },
+                    "quick-panel" => {
+                        show_quick_panel(&mut quick_ui, target, timeline_port, proxy.clone());
+                    }
                     "refresh" => {
                         let _ = loop_tx.send(Command::Refresh);
                     }
@@ -1367,6 +1461,14 @@ fn main() -> Result<()> {
                     state.status = i18n::fill(i18n::ui().err_write, &[&e.to_string()]);
                     render_or_retry(&tray, &mut state, control_flow);
                 }
+            }
+            Event::UserEvent(UserEvent::CloseQuickPanel) => {
+                if let Some((window, _)) = &quick_ui {
+                    window.set_visible(false);
+                }
+            }
+            Event::UserEvent(UserEvent::OpenQuickPanel) => {
+                show_quick_panel(&mut quick_ui, target, timeline_port, proxy.clone());
             }
 
             _ => {}

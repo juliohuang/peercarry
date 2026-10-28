@@ -16,15 +16,20 @@
 pub mod client;
 pub mod clipboard;
 pub mod config;
+mod desktop_settings;
 pub mod engine;
 pub mod error;
 pub mod maintenance;
+pub mod mobile_connect;
 pub mod model;
+pub mod notebook;
+pub mod notebook_sync;
 pub mod paths;
 pub mod protocol;
 pub mod server;
 pub mod store;
 pub mod tailscale;
+pub mod transfer_jobs;
 pub mod uploads;
 
 pub use engine::Engine;

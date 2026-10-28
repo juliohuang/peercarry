@@ -380,6 +380,23 @@ async fn get_events(
     }
 }
 
+async fn get_receiver_selection(
+    State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> Response {
+    if !loopback(Some(&addr)) && !token_ok(&state, &headers) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    let Some(token) = state.config.ai_token.as_deref().filter(|t| t.len() >= 32) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    match crate::ai_monitor::published_selection(token) {
+        Some(selection) => Json(selection).into_response(),
+        None => Json(serde_json::Value::Null).into_response(),
+    }
+}
+
 impl IntoResponse for AiEventError {
     fn into_response(self) -> Response {
         let status = if matches!(self, Self::Invalid(_)) {
@@ -395,5 +412,9 @@ impl IntoResponse for AiEventError {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/v1/ai/events", post(post_event).get(get_events))
+        .route(
+            "/v1/ai/receiver-selection",
+            axum::routing::get(get_receiver_selection),
+        )
         .layer(axum::extract::DefaultBodyLimit::max(MAX_BODY))
 }

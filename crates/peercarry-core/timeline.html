@@ -1,164 +1,238 @@
 <!doctype html>
 <!-- peercarry timeline + settings, served by the daemon at http://127.0.0.1:<port>/
-     Zero dependencies: one page of vanilla JS against /v1/timeline and /v1/config. -->
+     Zero dependencies: one page of vanilla JS against the local service APIs. -->
 <html lang="zh">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>peercarry</title>
+<title>PeerCarry</title>
+<link rel="stylesheet" href="/assets/notebook.css">
 <style>
-  :root {
-    --bg: #14161a; --panel: #1c1f25; --border: #2b2f37;
-    --text: #d8dce3; --dim: #8a919c; --accent: #4da3ff;
-    --ok: #58c288; --warn: #e2b34d;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 14px/1.5 system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
-  }
-  header {
-    position: sticky; top: 0; z-index: 2; display: flex; gap: 12px; align-items: center;
-    padding: 10px 18px; background: var(--panel); border-bottom: 1px solid var(--border);
-  }
-  h1 { font-size: 15px; margin: 0 4px 0 0; color: var(--accent); white-space: nowrap; cursor: pointer; }
-  #q {
-    flex: 1; padding: 8px 12px; font: inherit; color: var(--text);
-    background: var(--bg); border: 1px solid var(--border); border-radius: 8px; outline: none;
-  }
-  #q:focus { border-color: var(--accent); }
-  #count { color: var(--dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
-  .tab {
-    background: none; border: 1px solid transparent; border-radius: 8px; color: var(--dim);
-    font: inherit; padding: 6px 14px; cursor: pointer; white-space: nowrap;
-  }
-  .tab.active { color: var(--text); border-color: var(--border); background: var(--bg); }
-  #ai-tasks { max-width: 860px; margin: 0 auto; padding: 18px 18px 80px; }
-  #ai-tasks-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 8px 0 16px; }
-  #ai-tasks-status { color: var(--dim); }
-  #ai-receiver-label { display: inline-flex; align-items: center; gap: 7px; margin-left: auto; }
-  #ai-devices { display: grid; gap: 12px; }
-  .ai-device { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; background: var(--panel); }
-  .ai-device-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
-  .ai-device-host { font-weight: 600; }
-  .ai-device-state { color: var(--dim); font-size: 12px; }
-  .ai-event { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) minmax(130px, 1fr) auto; gap: 8px 14px; padding: 8px 0; border-top: 1px solid var(--border); align-items: baseline; }
-  .ai-event-meta, .ai-event-time { color: var(--dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ai-empty { color: var(--dim); padding: 28px 0; text-align: center; }
-  #ai-tools { margin: 18px 0; padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
-  #ai-tools h3 { margin: 0 0 10px; font-size: 14px; }
-  .ai-tool { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 0; border-top: 1px solid var(--border); }
-  .ai-tool-name { min-width: 80px; font-weight: 600; }
-  .ai-tool-state { flex: 1; min-width: 180px; color: var(--dim); font-size: 12px; }
-  @media (max-width: 650px) { .ai-event { grid-template-columns: 1fr 1fr; } #ai-receiver-label { margin-left: 0; } }
-  main { max-width: 860px; margin: 0 auto; padding: 18px 18px 80px; }
-  /* timeline */
-  .day { margin: 22px 0 8px; color: var(--dim); font-size: 12px; letter-spacing: 1px; text-transform: uppercase; }
-  .item {
-    display: flex; gap: 12px; align-items: baseline; padding: 9px 12px; cursor: pointer;
-    border-left: 2px solid var(--border); border-radius: 6px;
-  }
-  .item:hover { background: var(--panel); }
-  .item.sel { background: var(--panel); border-left-color: var(--accent); }
-  .time { color: var(--dim); font-variant-numeric: tabular-nums; flex: 0 0 44px; }
-  .icon { flex: 0 0 18px; text-align: center; }
-  .preview { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .host { flex: 0 0 auto; color: var(--dim); font-size: 12px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .size { flex: 0 0 auto; color: var(--dim); font-size: 12px; font-variant-numeric: tabular-nums; }
-  .pin { flex: 0 0 auto; background: none; border: none; cursor: pointer; font-size: 13px; padding: 0 2px; opacity: .25; }
-  .pin.on { opacity: 1; }
-  .empty { color: var(--dim); padding: 40px 0; text-align: center; }
-  /* settings */
-  #settings h2 { font-size: 13px; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; margin: 28px 0 10px; }
-  .row { display: flex; align-items: center; gap: 14px; padding: 7px 0; border-bottom: 1px solid var(--border); }
-  .row label.main { flex: 0 0 260px; }
-  .row .ctl { flex: 1; min-width: 0; }
-  .row .note { flex: 0 0 auto; font-size: 12px; }
-  .note.restart { color: var(--warn); }
-  .note.live { color: var(--ok); }
-  input[type=text], input[type=number], input[type=password] {
-    width: 100%; padding: 7px 10px; font: inherit; color: var(--text);
-    background: var(--bg); border: 1px solid var(--border); border-radius: 6px; outline: none;
-  }
-  input:focus { border-color: var(--accent); }
-  input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--accent); }
-  .apps .row { flex-wrap: wrap; }
-  .apps input { font-size: 13px; }
-  .apps .cname { flex: 0 0 160px; }
-  .apps .cpath { flex: 1 1 320px; }
-  .apps .cargs { flex: 0 1 200px; }
-  .apps .del { background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--dim); cursor: pointer; padding: 5px 10px; }
-  .apps .del:hover { color: var(--warn); border-color: var(--warn); }
-  button.primary {
-    background: var(--accent); border: none; border-radius: 8px; color: #10233c;
-    font: inherit; font-weight: 600; padding: 9px 18px; cursor: pointer;
-  }
-  button.secondary {
-    background: none; border: 1px solid var(--border); border-radius: 8px; color: var(--text);
-    font: inherit; padding: 9px 18px; cursor: pointer;
-  }
-  button:hover { filter: brightness(1.1); }
-  #cfg-status { margin-left: 14px; font-size: 13px; }
-  #cfg-status.ok { color: var(--ok); }
-  #cfg-status.err { color: var(--warn); }
-  #remote-capture { max-width: 824px; margin: 18px auto 0; padding: 16px 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); }
-  #remote-capture-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-  #remote-peer { min-width: 240px; flex: 1; padding: 8px 10px; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
-  #remote-peer:focus { border-color: var(--accent); outline: none; }
-  #remote-capture-status { margin: 10px 0 0; color: var(--dim); }
-  .addrow { margin-top: 10px; }
-  #toast {
-    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
-    background: var(--panel); border: 1px solid var(--border); color: var(--text);
-    padding: 9px 16px; border-radius: 8px; opacity: 0; transition: opacity .25s; pointer-events: none;
-    max-width: 70vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  #toast.show { opacity: 1; }
-  #toast.ok { border-color: var(--ok); }
-  #toast.err { border-color: var(--warn); }
-  footer {
-    position: fixed; bottom: 0; left: 0; right: 0; padding: 6px 18px; text-align: center;
-    color: var(--dim); font-size: 12px; background: var(--bg); border-top: 1px solid var(--border);
-  }
-  kbd { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; font-size: 11px; }
+  :root { color-scheme: light; --bg:#f5f6f2; --panel:#fff; --border:#e0e5df; --text:#20352e; --dim:#687970; --accent:#176b5b; --soft:#eaf2ec; --ok:#287354; --warn:#a45a24; }
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif; }
+  button,input,select { font:inherit; }
+  button { cursor:pointer; transition:background .15s,border-color .15s; }
+  button:disabled { cursor:not-allowed; opacity:.48; }
+  button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible { outline:3px solid #80b8a5; outline-offset:3px; }
+  .ui-icon { width:20px; height:20px; stroke:currentColor; stroke-width:1.7; fill:none; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; }
+  .sidebar { position:fixed; inset:0 auto 0 0; width:206px; display:flex; flex-direction:column; gap:32px; padding:30px 18px 22px; border-right:1px solid var(--border); background:#fbfcf9; z-index:5; }
+  .brand { display:flex; align-items:center; gap:11px; padding:0 12px; }
+  .brand-mark { position:relative; width:25px; height:28px; flex-shrink:0; }
+  .brand-mark:before,.brand-mark:after { content:''; position:absolute; width:16px; height:20px; border-radius:4px; background:var(--accent); }
+  .brand-mark:before { top:0; left:0; opacity:.75; }.brand-mark:after { bottom:0; right:0; opacity:.95; }
+  h1 { margin:0; font-size:20px; letter-spacing:-.6px; font-weight:650; }
+  .nav-group { display:flex; flex-direction:column; gap:7px; }
+  .nav-bottom { margin-top:auto; }
+  .tab { display:flex; align-items:center; gap:12px; border:0; border-radius:9px; background:transparent; color:var(--dim); text-align:left; padding:13px 14px; font-weight:550; white-space:nowrap; }
+  .tab:hover { background:#eef2ed; }.tab.active { background:#e4eee6; color:#155746; }
+  .sidebar-note { margin:0 12px; color:#7e8c83; font-size:12px; line-height:1.8; }
+  .app-content { max-width:1340px; margin-left:206px; padding:38px 42px 24px; }
+  .page-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; margin-bottom:28px; }
+  #page-title { font-size:clamp(24px,2.55vw,34px); letter-spacing:-1px; line-height:1.3; margin:0 0 8px; font-weight:650; }
+  #page-subtitle { margin:0; color:var(--dim); font-size:15px; }
+  button.primary,button.secondary,.item-action { display:inline-flex; align-items:center; justify-content:center; gap:9px; border-radius:8px; padding:10px 17px; border:1px solid var(--border); color:var(--text); background:var(--panel); font-weight:550; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:white; }
+  button.primary:hover:not(:disabled) { background:#115645; }
+  button.secondary:hover:not(:disabled),.item-action:hover:not(:disabled) { background:var(--soft); border-color:#a7c6b4; }
+  .quiet-button { border:0; background:transparent; padding:6px; color:var(--dim); }
+  .quiet-button:hover { color:var(--accent); }
+  .section-top { display:flex; align-items:center; justify-content:space-between; gap:16px; margin:0 0 15px; }
+  .section-top h2 { font-size:17px; margin:0; font-weight:600; }
+  .device-tools { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; }
+  #remote-favorite[aria-pressed="true"] { color:var(--accent); }
+  #remote-capture { margin-bottom:24px; }
+  #remote-capture-title { font-weight:600; font-size:15px; }
+  #device-cards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+  .device-card { position:relative; display:flex; flex-direction:column; align-items:flex-start; gap:10px; padding:19px 20px; min-height:133px; min-width:0; border:1px solid var(--border); border-radius:11px; background:var(--panel); color:var(--text); text-align:left; }
+  .device-card:hover:not(:disabled) { border-color:#91b4a4; background:#fafdf9; }
+  .device-card.selected { border:2px solid var(--accent); padding:18px 19px; background:#f0f6f0; }
+  .device-card .ui-icon { width:31px; height:31px; color:#507567; }
+  .device-name { display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; font-size:15px; }
+  .device-status { font-size:12px; color:var(--dim); display:flex; align-items:center; gap:6px; }
+  .device-status:before { content:''; width:6px; height:6px; border-radius:50%; background:#9ca6a0; }
+  .device-status.online { color:var(--ok); }.device-status.online:before { background:#3b9d60; }
+  .device-check { position:absolute; right:15px; top:17px; border-radius:50%; width:21px; height:21px; text-align:center; font-size:13px; background:var(--accent); color:white; }
+  #remote-capture-controls { display:flex; gap:12px; margin-top:15px; }
+  #remote-capture-controls>button { flex:1; min-height:48px; font-size:15px; }
+  #remote-capture-help { text-align:center; color:var(--dim); font-size:12px; margin:11px 0 0; }
+  #remote-target-notice { color:var(--warn); font-size:12px; margin:10px 0 0; }
+  #remote-target-notice:empty { display:none; }
+  #remote-capture-status { margin:10px 0 0; font-size:13px; overflow-wrap:anywhere; }
+  #remote-capture-status:empty { display:none; }
+  .inline-link { margin-left:8px; color:var(--accent); background:none; border:0; text-decoration:underline; padding:0; }
+  #file-share { display:flex; align-items:center; gap:17px; flex-wrap:wrap; padding:17px 21px; border:1px dashed #cbd7cc; border-radius:10px; background:#fafbf8; margin-bottom:32px; }
+  .file-copy { flex:1; min-width:170px; }.file-copy strong { font-size:14px; font-weight:550; }
+  #file-help { color:var(--dim); font-size:12px; margin:3px 0 0; }
+  #file-share>.ui-icon { width:27px; height:27px; color:#8c9a90; }
+  #file-status { margin:0; width:100%; font-size:12px; }#file-status:empty { display:none; }
+  #file-share button { padding:8px 12px; font-size:13px; }
+  #history-header { margin-bottom:8px; }.history-title { display:flex; align-items:center; gap:10px; }
+  #count { color:var(--dim); font-size:12px; }
+  .search-box { display:flex; align-items:center; gap:8px; background:#fff; border:1px solid var(--border); border-radius:8px; padding:8px 11px; width:min(290px,48%); }
+  .search-box .ui-icon { color:#88958e; width:17px; height:17px; }
+  #q { width:100%; min-width:0; padding:0; border:0; background:transparent; outline:none; color:var(--text); font-size:13px; }
+  .search-box:focus-within { border-color:var(--accent); box-shadow:0 0 0 2px #d8e9dc; }
+  main { margin:0; min-width:0; }
+  .day { color:var(--dim); font-size:11px; margin:18px 0 8px; }
+  .item { display:flex; align-items:center; gap:12px; background:#fff; border:1px solid var(--border); border-bottom:0; padding:14px 16px; min-width:0; }
+  .item:last-child,.item:has(+.day) { border-bottom:1px solid var(--border); border-radius:0 0 9px 9px; }
+  .day+.item { border-radius:9px 9px 0 0; }
+  .day+.item:last-child,.day+.item:has(+.day) { border-radius:9px; }
+  .item.sel { box-shadow:inset 3px 0 0 #b2cfc0; }.item:hover { background:#fafcf9; }
+  .entry-icon { width:39px; height:42px; display:flex; align-items:center; justify-content:center; border-radius:9px; background:#eaf2f8; color:#387eab; flex-shrink:0; }
+  .entry-icon.files { background:#faf0df; color:#a77831; }.entry-icon.image { background:#e8f2ec; color:var(--accent); }
+  .entry-copy { flex:1; min-width:0; }.preview { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
+  .entry-meta { display:flex; align-items:center; flex-wrap:wrap; gap:5px 9px; color:var(--dim); font-size:11px; margin-top:4px; }
+  .host { max-width:190px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .entry-actions { display:flex; gap:7px; align-items:center; flex-shrink:0; }
+  .item-action { padding:6px 11px; font-size:12px; font-weight:500; }
+  .item-action.send-action { background:#edf4ee; color:#17604e; border-color:#dae8dd; }
+  .pin { background:none; border:0; color:#9ba99f; font-size:19px; padding:4px; line-height:1; }.pin.on { color:#947526; }
+  .empty { text-align:center; color:var(--dim); padding:35px 20px; border:1px dashed var(--border); border-radius:10px; background:#fafbf8; }
+  h2 { font-size:20px; font-weight:600; }h3 { font-size:15px; font-weight:600; }
+  input[type=text],input[type=number],input[type=password],input[type=url],select { max-width:100%; padding:9px 11px; border:1px solid var(--border); border-radius:7px; color:var(--text); background:var(--panel); outline:none; }
+  input[type=text],input[type=number],input[type=password] { width:100%; }
+  input[type=checkbox] { accent-color:var(--accent); width:16px; height:16px; }
+  details>summary { cursor:pointer; color:var(--dim); font-size:12px; padding:5px 0; }
+  .transfer-composer,.receiver-card { background:var(--panel); padding:22px; border:1px solid var(--border); border-radius:12px; margin:18px 0 24px; }
+  .transfer-controls { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:12px 0; }
+  .transfer-controls select { max-width:100%; min-width:160px; }
+  #transfer-peer { flex:1; }
+  #transfer-filter { margin-left:auto; }
+  #transfer-options { margin-top:10px; }#transfer-options label { font-size:12px; color:var(--dim); margin-right:12px; }
+  #transfer-compose>summary { color:var(--accent); font-size:13px; padding:9px 0; }
+  #transfer-compose .transfer-composer { margin-top:10px; }
+  #transfer-title,#ai-title { display:none; }
+  .transfer-note,.transfer-detail { font-size:12px; color:var(--dim); overflow-wrap:anywhere; }
+  .transfer-card { padding:20px; border:1px solid var(--border); border-radius:10px; background:var(--panel); margin:12px 0; }
+  .transfer-card-heading { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  .transfer-card-title { flex:1; min-width:140px; overflow-wrap:anywhere; font-weight:550; }
+  .transfer-status-badge { padding:3px 9px; font-size:11px; border-radius:20px; background:#edf1ec; color:#67756d; }
+  .transfer-card progress { width:100%; height:6px; margin:16px 0 8px; accent-color:var(--accent); }
+  .transfer-card-actions { display:flex; gap:8px; margin-top:12px; }.transfer-card-actions button { padding:6px 11px; font-size:12px; border:1px solid var(--border); border-radius:7px; background:#fff; color:var(--dim); }
+  .transfer-status-badge { white-space:nowrap; }
+  .transfer-status--completed { background:#e5f1e8 !important; color:#277046 !important; }
+  .transfer-status--failed { background:#faece3 !important; color:#9b552b !important; }
+  .transfer-status--running,.transfer-status--downloading { background:#e5f1ef !important; color:#176b5b !important; }
+  .transfer-details { margin-top:13px; border-top:1px solid #edf0eb; padding-top:7px; }
+  .transfer-detail-list { margin:12px 0; }.transfer-detail-row { display:flex; align-items:baseline; gap:16px; margin:6px 0; font-size:12px; }
+  .transfer-detail-label { color:var(--dim); flex:0 0 70px; }.transfer-detail-value { margin:0; overflow-wrap:anywhere; }
+  .transfer-file-row { display:flex; gap:12px; align-items:center; padding:9px 0; border-top:1px solid #edf0eb; font-size:12px; }
+  .transfer-file-info { flex:1; min-width:0; }.transfer-file-name { display:block; overflow-wrap:anywhere; }
+  .transfer-file-size,.transfer-file-path { color:var(--dim); font-size:11px; overflow-wrap:anywhere; }
+  .transfer-action-primary { color:var(--accent) !important; background:var(--soft) !important; border-color:#c5dccd !important; }
+  .transfer-error-short { margin:10px 0 0; }.transfer-progress-label { margin:0 0 10px; }
+  .transfer-error { color:var(--warn); overflow-wrap:anywhere; font-size:12px; }
+  #ai-tasks-controls { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  #ai-receiver-label { display:flex; align-items:center; gap:5px; color:var(--dim); font-size:12px; margin-left:auto; }
+  #ai-receiver-summary { margin:16px 0 0; color:var(--dim); font-size:13px; overflow-wrap:anywhere; }
+  #ai-tasks-status { font-size:12px; color:var(--dim); }
+  #ai-tools { margin:20px 0; padding:17px 20px; border:1px solid var(--border); border-radius:10px; background:var(--panel); }
+  #ai-tools-title { margin:0; } .ai-tool { display:flex; gap:12px; align-items:center; flex-wrap:wrap; border-top:1px solid var(--border); padding:13px 0; }
+  .ai-tool-name { min-width:70px; font-weight:550; }.ai-tool-state { flex:1; min-width:180px; color:var(--dim); font-size:12px; }
+  .ai-device { margin:12px 0; padding:20px; border:1px solid var(--border); border-radius:10px; background:var(--panel); }
+  .ai-device-head { display:flex; gap:12px; margin-bottom:10px; align-items:baseline; }.ai-device-host { font-weight:600; }
+  .ai-device-state,.ai-event-meta,.ai-event-time { font-size:12px; color:var(--dim); overflow-wrap:anywhere; }
+  .ai-event { display:grid; grid-template-columns:1fr 1fr 1fr auto; gap:10px; padding:10px 0; border-top:1px solid var(--border); }.ai-empty { color:var(--dim); padding:25px 0; text-align:center; }
+  #settings { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:22px; }
+  #settings h2 { color:var(--accent); font-size:14px; margin:25px 0 14px; }.row { display:flex; align-items:center; gap:14px; padding:10px 0; border-bottom:1px solid var(--border); }
+  .row label.main { flex:0 0 220px; }.row .ctl { flex:1; min-width:0; }.row .note { font-size:11px; color:var(--dim); }
+  #settings .secret-state { display:inline-block; margin:0 10px 8px 0; color:var(--dim); font-size:12px; }
+  #settings [data-secret-op] { margin-bottom:8px; }
+  .apps .row { flex-wrap:wrap; }.apps .cname { flex:0 1 160px; }.apps .cpath { flex:1 1 280px; }.apps .cargs { flex:0 1 180px; }.apps .del { padding:6px 10px; border:1px solid var(--border); background:none; border-radius:6px; color:var(--warn); }
+  .addrow { margin-top:12px; }#cfg-status { font-size:12px; }#cfg-status.err { color:var(--warn); }#cfg-status.ok { color:var(--ok); }
+  #cfg-reconnect { font-size:12px; max-width:100%; overflow-wrap:anywhere; color:var(--accent); }
+  #mobile-connect { max-width:850px; }#mobile-devices>div { overflow-wrap:anywhere; }
+  #toast { position:fixed; left:calc(50% + 103px); bottom:30px; transform:translateX(-50%); z-index:20; background:#203d32; color:#fff; padding:12px 20px; border-radius:9px; box-shadow:0 8px 30px #163a2920; opacity:0; pointer-events:none; max-width:min(680px,85vw); overflow-wrap:anywhere; transition:opacity .15s; }
+  #toast.show { opacity:1; }#toast.err { background:#7c4127; }
+  #hint { text-align:center; padding-top:24px; color:#849087; font-size:11px; }#hint:empty { display:none; }kbd { border:1px solid var(--border); border-radius:4px; padding:1px 4px; background:var(--panel); font:inherit; }
+  @media(min-width:1550px) { .app-content { margin-right:auto; } }
+  @media(max-width:1050px) { .sidebar { width:178px; padding:25px 12px; }.app-content { margin-left:178px; padding:30px 25px; }#toast { left:calc(50% + 89px); }.device-card { padding:15px; }.device-card.selected { padding:14px; }.entry-actions { gap:4px; }.item { padding:13px 12px; gap:9px; } }
+  @media(max-width:760px) { .sidebar { position:sticky; top:0; width:auto; padding:12px 18px; gap:10px; flex-direction:row; align-items:center; flex-wrap:wrap; border-right:0; border-bottom:1px solid var(--border); }.brand { padding:0; margin-right:auto; }h1 { font-size:18px; }.brand-mark { transform:scale(.85); }.nav-group { flex-direction:row; gap:4px; }.nav-primary { order:3; width:100%; }.nav-primary .tab { flex:1; justify-content:center; }.nav-bottom { margin-top:0; }.nav-bottom .tab { padding:7px; font-size:12px; }.nav-bottom .ui-icon,.sidebar-note { display:none; }.tab { padding:8px 10px; font-size:13px; }.tab .ui-icon { width:17px; height:17px; }.app-content { margin-left:0; padding:25px 20px; }.page-heading { margin-bottom:22px; gap:10px; }#page-title { font-size:25px; }#page-subtitle { font-size:13px; }#open-quick { padding:8px 10px; font-size:12px; }.device-card { min-height:117px; padding:13px; gap:7px; }.device-card.selected { padding:12px; }.device-name { font-size:13px; }.device-check { top:11px; right:11px; }#toast { left:50%; }.row label.main { flex-basis:180px; } }
+  @media(max-width:480px) { .app-content { padding:22px 14px; }.page-heading { flex-wrap:wrap; }#page-title { font-size:25px; }#open-quick { padding:5px 9px; }.device-card .ui-icon { width:24px; height:24px; }#device-cards { grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; }.device-card { min-height:108px; }#remote-capture-controls { gap:8px; }#remote-capture-controls>button { font-size:13px; padding:10px; }#file-share { padding:15px; gap:9px; }#file-share>.ui-icon { display:none; }.file-copy { flex-basis:100%; }#history-header { flex-wrap:wrap; gap:12px; }.search-box { width:100%; }.item { flex-wrap:wrap; }.entry-copy { min-width:calc(100% - 60px); }.entry-actions { margin-left:48px; }.entry-meta { font-size:11px; }.item-action { padding:6px 10px; }.row { flex-wrap:wrap; }.row label.main { flex-basis:100%; }.row .note { display:none; }.ai-event { grid-template-columns:1fr 1fr; }#ai-receiver-label { margin-left:0; }.transfer-composer,.receiver-card,.transfer-job { padding:16px; }#transfer-filter { margin-left:0; }.transfer-controls>select { min-width:0; width:100%; flex-basis:100%; }#settings { padding:17px; }#hint { font-size:10px; } }
+  @media(prefers-reduced-motion:reduce) { * { transition:none !important; scroll-behavior:auto !important; } }
 </style>
 </head>
 <body>
-<header>
-  <h1 id="brand">peercarry</h1>
-  <button class="tab active" id="tab-timeline"></button>
-  <button class="tab" id="tab-settings"></button>
-  <button class="tab" id="tab-ai"></button>
-  <input id="q" type="search" autofocus autocomplete="off">
-  <span id="count"></span>
+<svg hidden xmlns="http://www.w3.org/2000/svg"><defs>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10 12 3l9 7v11h-6v-7H9v7H3z"/></symbol>
+  <symbol id="i-history" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 8-3 8-3 10h18c0-2-3-2-3-10M10 21h4"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="m9 3-1 3-3 1-2 4 2 3v4l4 2 3-1 3 1 4-2v-4l2-3-2-4-3-1-1-3z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-laptop" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="14" rx="1"/><path d="m4 17-2 3h20l-2-3M9 20h6"/></symbol>
+  <symbol id="i-text" viewBox="0 0 24 24"><path d="M14 2H5v20h14V7zM14 2v5h5M8 12h8M8 16h6"/></symbol>
+  <symbol id="i-checklist" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="m7 8 1.5 1.5L11 7M13 9h4M7 15h2m4 0h4"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8" cy="8" r="1"/><path d="m3 17 5-5 4 4 4-6 5 7"/></symbol>
+  <symbol id="i-files" viewBox="0 0 24 24"><path d="M3 6h7l2 3h9v12H3zM6 6V3h8l4 4v2"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="m21 3-7 18-3-8-8-3zM11 13 21 3"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 15v6h16v-6"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></symbol>
+  <symbol id="i-zap" viewBox="0 0 24 24"><path d="m13 2-9 12h7l-1 8 10-13h-7z"/></symbol>
+</defs></svg>
+<header class="sidebar">
+  <div class="brand"><span class="brand-mark" aria-hidden="true"></span><h1 id="brand">PeerCarry</h1></div>
+  <nav id="nav-primary" class="nav-group nav-primary" aria-label="Main">
+    <button class="tab" id="tab-notes"></button>
+    <button class="tab" id="tab-todo"></button>
+    <button class="tab" id="tab-device-clipboard"></button>
+  </nav>
+  <nav id="nav-more" class="nav-group nav-bottom" aria-label="More">
+    <button class="tab active" id="tab-timeline"></button>
+    <button class="tab" id="tab-transfers"></button>
+    <button class="tab" id="tab-ai"></button>
+    <button class="tab" id="tab-mobile"></button>
+    <button class="tab" id="tab-settings"></button>
+  </nav>
+  <p class="sidebar-note" id="sidebar-note"></p>
 </header>
+<div class="app-content">
+  <div class="page-heading"><div><h2 id="page-title"></h2><p id="page-subtitle"></p></div><button class="secondary" id="open-quick"></button></div>
+  <main id="notebook-view" hidden></main>
+  <section id="remote-capture" aria-labelledby="remote-capture-title">
+    <div class="section-top"><strong id="remote-capture-title"></strong><div class="device-tools"><button class="quiet-button" id="remote-favorite" type="button" disabled></button><button class="quiet-button" id="remote-refresh"></button></div></div>
+    <div id="device-cards" role="group"></div>
+    <select id="remote-peer" hidden aria-label="Target computer"></select>
+    <p id="remote-target-notice" role="status" aria-live="polite"></p>
+    <div id="remote-capture-controls"><button class="primary" id="remote-send" disabled></button><button class="secondary" id="remote-fetch" disabled></button></div>
+    <p id="remote-capture-help"></p>
+    <p id="remote-capture-status" role="status" aria-live="polite"></p>
+  </section>
+  <section id="file-share">
+    <svg class="ui-icon" aria-hidden="true"><use href="#i-files"/></svg>
+    <div class="file-copy"><strong id="file-title"></strong><p id="file-help"></p></div>
+    <button class="secondary" id="pick-files"></button><button class="quiet-button" id="pick-folder"></button>
+    <p id="file-status" role="status" aria-live="polite"></p>
+  </section>
+  <div class="section-top" id="history-header"><div class="history-title"><h2 id="history-title"></h2><span id="count"></span></div><label class="search-box"><svg class="ui-icon" aria-hidden="true"><use href="#i-search"/></svg><input id="q" type="search" autocomplete="off"></label></div>
+  <main id="timeline"></main>
 
-<section id="file-share" style="max-width:824px; margin:18px auto 0; padding:20px; border:2px dashed var(--accent); border-radius:12px; background:var(--panel);">
-  <strong id="file-title"></strong>
-  <p id="file-help" style="color:var(--dim)"></p>
-  <button class="primary" id="pick-files"></button>
-  <button class="secondary" id="pick-folder"></button>
-  <p id="file-status" role="status" aria-live="polite"></p>
-</section>
-<section id="remote-capture">
-  <strong id="remote-capture-title"></strong>
-  <p id="remote-capture-help" style="color:var(--dim)"></p>
-  <div id="remote-capture-controls">
-    <select id="remote-peer" aria-label="remote peer"></select>
-    <button class="secondary" id="remote-refresh"></button>
-    <button class="primary" id="remote-fetch"></button>
-  </div>
-  <p id="remote-capture-status" role="status" aria-live="polite"></p>
-</section>
-<main id="timeline"></main>
+<main id="transfers" hidden>
+  <h2 id="transfer-title"></h2>
+  <p id="transfer-help" class="transfer-note"></p>
+  <details id="transfer-compose"><summary id="transfer-compose-title"></summary><section class="transfer-composer">
+    <div class="transfer-controls"><select id="transfer-peer" aria-label="Target device"></select><button class="secondary" id="transfer-refresh"></button></div>
+    <p id="transfer-selection" class="transfer-note"></p>
+    <div class="transfer-controls"><button class="primary" id="transfer-send"></button><button class="secondary" id="transfer-clear-selection" hidden></button></div>
+    <details id="transfer-options"><summary id="transfer-options-title"></summary><label for="transfer-ttl" id="transfer-ttl-label"></label><select id="transfer-ttl"><option value="3600">1 h</option><option value="86400" selected>24 h</option><option value="604800">7 d</option></select></details>
+  </section></details>
+  <div class="transfer-controls"><strong id="transfer-list-title"></strong><select id="transfer-filter" aria-label="Filter jobs"></select></div>
+  <p id="transfer-status" role="status" aria-live="polite"></p>
+  <div id="transfer-jobs"></div>
+</main>
 
 <main id="ai-tasks" hidden>
   <h2 id="ai-title"></h2>
-  <div id="ai-tasks-controls">
+  <section class="receiver-card"><div id="ai-tasks-controls">
     <button class="secondary" id="ai-refresh"></button>
+    <button class="primary" id="ai-take-receiver"></button>
     <span id="ai-tasks-status" role="status" aria-live="polite"></span>
     <label id="ai-receiver-label"><input type="checkbox" id="ai-receiver"> <span id="ai-receiver-text"></span></label>
   </div>
+  <p id="ai-receiver-summary" role="status" aria-live="polite"></p>
+  <details id="ai-sync-details" hidden><summary id="ai-sync-title"></summary><p id="ai-sync-content" class="transfer-detail"></p></details></section>
   <section id="ai-tools">
     <h3 id="ai-tools-title"></h3>
     <div id="ai-tool-codex" class="ai-tool"></div>
@@ -167,32 +241,68 @@
   <div id="ai-devices"></div>
 </main>
 
+<main id="mobile-connect" hidden>
+  <h2 id="mobile-title"></h2>
+  <p id="mobile-help" style="color:var(--dim);line-height:1.8"></p>
+  <details style="margin:20px 0">
+    <summary id="mobile-relay-title"></summary>
+    <p id="mobile-relay-help" style="color:var(--dim)"></p>
+    <input id="mobile-relay" type="url" placeholder="https://relay.example.com:65197" style="width:min(100%,440px);box-sizing:border-box" autocomplete="off">
+  </details>
+  <div style="display:flex;flex-wrap:wrap;gap:10px">
+    <button class="primary" id="mobile-pair"></button>
+    <button class="secondary" id="mobile-stop"></button>
+  </div>
+  <p id="mobile-status" role="status" aria-live="polite"></p>
+  <section id="mobile-qr-area" hidden style="margin:24px 0;padding:24px;background:var(--panel);border-radius:16px;text-align:center">
+    <img id="mobile-qr" alt="PeerCarry pairing QR code" style="background:white;width:min(100%,360px);height:auto">
+    <p id="mobile-expiry"></p>
+    <button class="secondary" id="mobile-copy"></button>
+  </section>
+  <h3 id="mobile-devices-title"></h3>
+  <div id="mobile-devices"></div>
+  <p id="mobile-session-note" style="color:var(--dim);line-height:1.8"></p>
+</main>
+
 <main id="settings" hidden>
+  <button class="secondary" id="cfg-return" type="button" hidden></button>
+  <p id="cfg-sync-help" class="transfer-note"></p>
   <div id="cfgform"></div>
 
   <h2 id="apps-title"></h2>
   <div class="apps" id="apps-rows"></div>
-  <div class="addrow"><button class="secondary" id="app-add"></button></div>
+  <div class="addrow"><button class="secondary" id="app-add" disabled></button></div>
 
-  <div style="margin-top:30px; display:flex; align-items:center;">
-    <button class="primary" id="cfg-save"></button>
-    <button class="secondary" id="cfg-save-restart" style="margin-left:10px;"></button>
-    <span id="cfg-status"></span>
+  <div style="margin-top:30px; display:flex; align-items:center; flex-wrap:wrap; gap:10px;">
+    <button class="primary" id="cfg-save" disabled></button>
+    <button class="secondary" id="cfg-save-restart" disabled></button>
+    <button class="secondary" id="cfg-reload" type="button" hidden></button>
+    <span id="cfg-status" role="status" aria-live="polite"></span>
+    <a id="cfg-reconnect" hidden target="_blank" rel="noopener noreferrer"></a>
+  </div>
+  <div id="cfg-leave" hidden role="alert" style="margin-top:15px;">
+    <p id="cfg-leave-help"></p>
+    <button class="secondary" id="cfg-stay" type="button"></button>
+    <button class="secondary" id="cfg-discard" type="button"></button>
   </div>
 </main>
 
 <div id="toast"></div>
 <footer id="hint"></footer>
+</div>
+<script src="/assets/ui-locale.js?v=device-preferences-1"></script>
+<script src="/assets/notebook.js"></script>
 <script>
 'use strict';
-const zh = navigator.language && navigator.language.toLowerCase().startsWith('zh');
+const zh = window.PeerCarryLocale.isChinese;
 const T = zh ? {
-  tabTimeline: '时间线', tabSettings: '设置',
+  tabNotes: '笔记', tabTodo: '待办', tabDeviceClipboard: '设备剪贴板',
+  tabTimeline: '工作台', tabSettings: '设置',
   placeholder: '搜索内容、文件名、设备名…', count: n => `${n} 条`,
-  empty: '没有匹配的条目', pulled: ok => ok ? '已取回到剪贴板' : '取回失败',
-  pinned: '已固定', unpinned: '已取消固定',
+  empty: '还没有内容。发送或获取一次，就会出现在这里。', pulled: ok => ok ? '已取回到剪贴板' : '取回失败',
+  pinned: '已收藏', unpinned: '已取消收藏',
   today: '今天', yesterday: '昨天',
-  hint: '<kbd>↑</kbd><kbd>↓</kbd> 选择 · <kbd>Enter</kbd> 取回到剪贴板 · <kbd>Ctrl</kbd>+<kbd>P</kbd> 固定 · <kbd>Esc</kbd> 清空搜索',
+  hint: '<kbd>↑</kbd><kbd>↓</kbd> 选择 · <kbd>Enter</kbd> 复制 · <kbd>Ctrl</kbd>+<kbd>P</kbd> 收藏 · <kbd>Esc</kbd> 清空搜索',
   // settings
   settings: '设置', restartNote: '重启生效', liveNote: '立即生效', apps: '可远程启动的软件',
   appAdd: '+ 添加软件', appName: '名称', appPath: '可执行文件路径', appArgs: '参数(逗号分隔)',
@@ -201,12 +311,13 @@ const T = zh ? {
   del: '删除', appNamePh: '例如 chrome', appArgsPh: '可选',
   cfgFetchFail: '读取配置失败: ',
 } : {
-  tabTimeline: 'Timeline', tabSettings: 'Settings',
+  tabNotes: 'Notes', tabTodo: 'To-dos', tabDeviceClipboard: 'Device clipboard',
+  tabTimeline: 'Workspace', tabSettings: 'Settings',
   placeholder: 'Search text, file names, devices…', count: n => `${n} entries`,
-  empty: 'nothing matches', pulled: ok => ok ? 'pulled to clipboard' : 'pull failed',
+  empty: 'No content yet. Send or fetch something to get started.', pulled: ok => ok ? 'pulled to clipboard' : 'pull failed',
   pinned: 'pinned', unpinned: 'unpinned',
   today: 'Today', yesterday: 'Yesterday',
-  hint: '<kbd>↑</kbd><kbd>↓</kbd> select · <kbd>Enter</kbd> pull to clipboard · <kbd>Ctrl</kbd>+<kbd>P</kbd> pin · <kbd>Esc</kbd> clear search',
+  hint: '<kbd>↑</kbd><kbd>↓</kbd> select · <kbd>Enter</kbd> copy · <kbd>Ctrl</kbd>+<kbd>P</kbd> pin · <kbd>Esc</kbd> clear search',
   settings: 'Settings', restartNote: 'restart to apply', liveNote: 'applies now', apps: 'Apps launchable by peers',
   appAdd: '+ Add app', appName: 'Name', appPath: 'Executable path', appArgs: 'Args (comma separated)',
   save: 'Save', saveRestart: 'Save & restart service',
@@ -214,36 +325,150 @@ const T = zh ? {
   del: 'del', appNamePh: 'e.g. chrome', appArgsPh: 'optional',
   cfgFetchFail: 'failed to load config: ',
 };
-const ICONS = { text: '📝', image: '🖼️', files: '📁' };
+const icon = name => `<svg class="ui-icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const $ = id => document.getElementById(id);
 const q = $('q'), list = $('timeline'), count = $('count'), toast = $('toast');
+const notebookApp = window.PeerCarryNotebook?.mount($('notebook-view'), {
+  isChinese: zh, locale: window.PeerCarryLocale.locale,
+  onOpenSettings: () => openSettings({ focusAuth: true }),
+});
+$('nav-primary').setAttribute('aria-label', zh ? '主要功能' : 'Main');
+$('nav-more').setAttribute('aria-label', zh ? '其他功能' : 'More');
+$('remote-peer').setAttribute('aria-label', zh ? '目标电脑' : 'Target computer');
+$('mobile-qr').alt = zh ? 'PeerCarry 手机配对二维码' : 'PeerCarry pairing QR code';
+$('mobile-relay').setAttribute('aria-label', zh ? '中继地址' : 'Relay address');
 
 /* ------------------------------------------------------------ tabs */
+let activeTab = null, tabNavigationRevision = 0, settingsReturnTab = null;
+const isNotebookTab = which => ['notes', 'todo', 'device-clipboard'].includes(which);
 function showTab(which) {
+  const revision = ++tabNavigationRevision;
+  if (activeTab === 'settings' && which !== 'settings') {
+    if (configSaving) {
+      status(zh ? '设置正在保存，请等待请求完成后再离开。' : 'Settings are being saved. Wait for the request to finish before leaving.', '');
+      $('cfg-status').scrollIntoView?.({ block: 'nearest' });
+      return Promise.resolve(false);
+    }
+    if (hasSettingsDraft()) {
+      settingsPendingTab = which;
+      $('cfg-leave').hidden = false;
+      $('cfg-leave').scrollIntoView?.({ block: 'nearest' });
+      $('cfg-stay').focus?.();
+      return Promise.resolve(false);
+    }
+    clearSettingsLeavePrompt();
+    stopRestartRecovery();
+    clearSettingsForm();
+    ++configLoadSequence;
+    configReady = false;
+    configBusy = false;
+  }
+  if (notebookApp && isNotebookTab(activeTab) && !isNotebookTab(which)) {
+    return (async () => {
+      let canLeave = false;
+      try { canLeave = await notebookApp.whenIdle(); } catch (_) {}
+      if (!canLeave || revision !== tabNavigationRevision) return false;
+      activeTab = which;
+      renderTab(which);
+      return true;
+    })();
+  }
+  activeTab = which;
+  renderTab(which);
+  return Promise.resolve(true);
+}
+function renderTab(which) {
+  window.scrollTo({ top: 0, behavior: 'instant' });
+  const notebookSection = ({ notes: 'notes', todo: 'todo', 'device-clipboard': 'clipboard' })[which];
+  const notebook = Boolean(notebookSection);
   const tl = which === 'timeline';
   const ai = which === 'ai';
-  $('tab-timeline').classList.toggle('active', tl);
-  $('tab-settings').classList.toggle('active', which === 'settings');
-  $('tab-ai').classList.toggle('active', ai);
+  const headings = {
+    notes: [zh ? '笔记' : 'Notes', zh ? '随手记录，跨电脑接着处理。' : 'Capture a thought and continue on another computer.'],
+    todo: [zh ? '待办' : 'To-dos', zh ? '清晰记录下一步要做的事。' : 'Keep your next steps in one simple list.'],
+    'device-clipboard': [zh ? '设备剪贴板' : 'Device clipboard', zh ? '按电脑查看已有的剪贴板记录。' : 'Browse clipboard history by computer.'],
+    timeline: [zh ? '在电脑之间，顺手传递' : 'A little closer. Across computers.', zh ? '选一台电脑，发送你需要的内容。' : 'Choose a computer. Send what you need.'],
+    transfers: [zh ? '传输记录' : 'Your transfers', zh ? '发送与下载，都在这里。' : 'Sends and downloads, in one place.'],
+    ai: [zh ? 'AI 提醒' : 'AI alerts', zh ? '让任务进展，跟着你走。' : 'Keep up with your tasks wherever you work.'],
+    mobile: [zh ? '连接手机' : 'Connect your phone', zh ? '扫码连接，继续传递。' : 'Scan to connect and keep things moving.'],
+    settings: [zh ? '设置' : 'Settings', zh ? '按照你的习惯，让电脑协同工作。' : 'Make your computers work your way.'],
+  };
+  const heading = headings[which] || headings.timeline;
+  document.title = 'PeerCarry · ' + heading[0];
+  $('page-title').textContent = heading[0]; $('page-subtitle').textContent = heading[1];
+  $('history-header').hidden = !tl;
+  document.querySelectorAll('.tab').forEach(button => { button.removeAttribute('aria-current'); button.classList.remove('active'); });
+  $('tab-' + which)?.setAttribute('aria-current', 'page');
+  $('tab-' + which)?.classList.add('active');
+  $('notebook-view').hidden = !notebook;
+  $('notebook-view').setAttribute('aria-label', heading[0]);
+  $('notebook-view').setAttribute('aria-hidden', notebook ? 'false' : 'true');
+  notebookApp?.setVisible?.(notebook && notebookSection !== 'clipboard');
+  if (notebookSection) notebookApp?.setSection(notebookSection);
+  $('transfers').hidden = which !== 'transfers';
+  window.PeerCarryTransfers?.setVisible(which === 'transfers');
   $('timeline').hidden = !tl;
   $('file-share').hidden = !tl;
   $('remote-capture').hidden = !tl;
   $('ai-tasks').hidden = !ai;
   $('settings').hidden = which !== 'settings';
+  $('mobile-connect').hidden = which !== 'mobile';
   q.style.display = tl ? '' : 'none';
   count.style.display = tl ? '' : 'none';
   $('hint').innerHTML = tl ? T.hint : '';
-  if (tl) refresh();
+  if (tl) { loadPeers(); refresh(); }
   if (ai) { loadAiOverview(); scanAiTools(); }
+  if (which === 'mobile') loadMobileStatus();
 }
-$('tab-timeline').textContent = T.tabTimeline;
-$('tab-settings').textContent = T.tabSettings;
+async function openSettings({ focusAuth = false } = {}) {
+  const previous = activeTab;
+  if (!await showTab('settings')) return false;
+  if (activeTab !== 'settings') return false;
+  if (isNotebookTab(previous)) settingsReturnTab = previous;
+  else if (previous !== 'settings') settingsReturnTab = null;
+  $('cfg-return').hidden = !settingsReturnTab;
+  $('cfg-return').textContent = settingsReturnTab === 'todo'
+    ? (zh ? '返回待办' : 'Return to to-dos')
+    : settingsReturnTab === 'device-clipboard'
+      ? (zh ? '返回设备剪贴板' : 'Return to device clipboard')
+      : (zh ? '返回笔记' : 'Return to notes');
+  const loaded = previous === 'settings' ? configReady : await loadConfig();
+  if (loaded && focusAuth && activeTab === 'settings') {
+    const field = $('cfgform').querySelector('[data-secret-op="network.auth_token"]');
+    field?.scrollIntoView?.({ block: 'center' });
+    field?.focus?.();
+  }
+  return true;
+}
+$('cfg-return').onclick = () => settingsReturnTab && showTab(settingsReturnTab);
+$('cfg-sync-help').textContent = zh
+  ? '笔记同步需要在两台电脑分别配置相同且至少 32 字节的访问令牌，重启后在两端分别选择对方。'
+  : 'For notebook sync, configure the same access token of at least 32 bytes on both computers, restart, and select each other on both sides.';
+const navLabel = (id, text, symbol) => { $(id).innerHTML = icon(symbol) + '<span>' + text + '</span>'; };
+navLabel('tab-timeline', T.tabTimeline, 'home');
+navLabel('tab-notes', T.tabNotes, 'text');
+navLabel('tab-todo', T.tabTodo, 'checklist');
+navLabel('tab-device-clipboard', T.tabDeviceClipboard, 'laptop');
+navLabel('tab-settings', T.tabSettings, 'settings');
+$('tab-notes').onclick = () => showTab('notes');
+$('tab-todo').onclick = () => showTab('todo');
+$('tab-device-clipboard').onclick = () => showTab('device-clipboard');
 $('tab-timeline').onclick = () => showTab('timeline');
-$('tab-settings').onclick = () => { showTab('settings'); loadConfig(); };
-$('tab-ai').textContent = zh ? 'AI 任务' : 'AI tasks';
+$('tab-settings').onclick = () => openSettings();
+navLabel('tab-ai', zh ? 'AI 提醒' : 'AI alerts', 'bell');
 $('ai-title').textContent = zh ? 'AI 任务提醒' : 'AI task alerts';
 $('ai-refresh').textContent = zh ? '刷新' : 'Refresh';
 $('ai-receiver-text').textContent = zh ? '在本机接收 AI 提醒' : 'Receive AI alerts on this device';
+$('ai-take-receiver').textContent = zh ? '将提醒切换到这台电脑' : 'Move alerts to this computer';
+navLabel('tab-transfers', zh ? '传输记录' : 'Transfers', 'history');
+$('tab-transfers').onclick = () => showTab('transfers');
+$('open-quick').innerHTML = icon('zap') + (zh ? '快捷面板' : 'Quick panel');
+$('sidebar-note').textContent = zh ? '在不同的电脑上，延续手边的事。' : 'Your work. Across computers.';
+$('history-title').textContent = zh ? '最近内容' : 'Recent content';
+$('open-quick').onclick = () => {
+  if (window.ipc?.postMessage) window.ipc.postMessage(JSON.stringify({ type: 'quick-panel' }));
+  else window.open('/quick', 'peercarry-quick', 'width=640,height=620');
+};
 $('ai-tools-title').textContent = zh ? 'AI 工具接入' : 'AI tool connections';
 
 function show(msg, cls) {
@@ -254,7 +479,7 @@ function show(msg, cls) {
 }
 
 /* ------------------------------------------------------------ timeline */
-let entries = [], sel = 0, seq = 0, toastTimer;
+let entries = [], sel = 0, seq = 0, toastTimer, copyBusy = false;
 
 function human(n) {
   if (n < 1024) return n + 'B';
@@ -271,7 +496,7 @@ function dayLabel(iso) {
   const diff = Math.round((day(now) - day(d)) / 86400000);
   if (diff === 0) return T.today;
   if (diff === 1) return T.yesterday;
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', weekday: 'short' });
+  return d.toLocaleDateString(window.PeerCarryLocale.locale, { year: 'numeric', month: 'short', day: 'numeric', weekday: 'short' });
 }
 
 async function refresh() {
@@ -279,14 +504,15 @@ async function refresh() {
   const url = '/v1/timeline?limit=200&max=1000' + (query ? '&q=' + encodeURIComponent(query) : '');
   try {
     const resp = await fetch(url);
-    if (resp.status === 401) { show('auth_token is set - this page needs a token-free config', 'err'); return; }
+    if (resp.status === 401) { show(zh ? '无法访问记录，请从本机托盘打开。' : 'Cannot access history. Open the app from your local tray.', 'err'); return false; }
     if (!resp.ok) throw new Error(resp.status);
     const data = await resp.json();
-    if (ticket !== seq) return;              // a newer query already rendered
+    if (ticket !== seq) return null;         // a newer query already rendered
     entries = data;
     sel = 0;
     render();
-  } catch (e) { show('timeline fetch failed: ' + e, 'err'); }
+    return true;
+  } catch (e) { show((zh ? '读取最近内容失败：' : 'Could not load recent content: ') + e, 'err'); return false; }
 }
 
 function render() {
@@ -296,35 +522,38 @@ function render() {
   for (const e of entries) {
     const day = dayLabel(e.created_at);
     if (day !== lastDay) { html += `<div class="day">${day}</div>`; lastDay = day; }
-    const pinned = e.pinned ? ' ✔' : '';
+    const kind = ['text', 'image', 'files'].includes(e.kind) ? e.kind : 'text';
     html += `<div class="item${index === sel ? ' sel' : ''}" data-i="${index}">`
-      + `<span class="time">${hhmm(e.created_at)}</span>`
-      + `<span class="icon">${ICONS[e.kind] || '•'}</span>`
-      + `<span class="preview">${escapeHtml(e.preview)}</span>`
-      + `<span class="host">${escapeHtml(e.origin.host)}${e.holder ? ' ⇡' : ''}${pinned}</span>`
-      + `<span class="size">${human(e.size)}</span>`
-      + `<button class="pin${e.pinned ? ' on' : ''}" data-pin="${index}" title="pin">📌</button>`
-      + `</div>`;
+      + `<span class="entry-icon ${kind}">${icon(kind)}</span>`
+      + `<div class="entry-copy"><span class="preview">${escapeHtml(e.preview)}</span><span class="entry-meta"><span class="host">${escapeHtml(e.origin?.host || '')}</span><span>${hhmm(e.created_at)}</span><span>${human(e.size)}</span></span></div>`
+      + `<div class="entry-actions"><button class="item-action" data-copy="${index}">${zh ? '复制' : 'Copy'}</button>`
+      + `<button class="item-action send-action" data-send="${index}">${zh ? '发送' : 'Send'}</button>`
+      + (e.kind === 'files' ? `<button class="item-action" data-download="${index}">${zh ? '下载' : 'Download'}</button>` : '')
+      + `<button class="pin${e.pinned ? ' on' : ''}" data-pin="${index}" aria-label="${zh ? (e.pinned ? '取消收藏' : '收藏') : (e.pinned ? 'Unpin' : 'Pin')}" aria-pressed="${!!e.pinned}">${e.pinned ? '★' : '☆'}</button></div></div>`;
     index++;
   }
   list.innerHTML = html;
 }
 
 function escapeHtml(s) {
-  return s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
 async function apply(i) {
   const e = entries[i];
-  if (!e) return;
+  if (!e || copyBusy) return;
+  copyBusy = true;
   try {
     const resp = await fetch('/v1/actions/apply', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: e.id }),
     });
+    if (!resp.ok) throw new Error('copy failed');
     const result = await resp.json();
-    show(`${T.pulled(result.ok)} · ${result.kind} · ${result.detail}`, result.ok ? 'ok' : 'err');
-  } catch (err) { show(String(err), 'err'); }
+    if (!result.ok) throw new Error('copy failed');
+    show(zh ? '已复制到剪贴板' : 'Copied to clipboard', 'ok');
+  } catch (_) { show(zh ? '复制失败，请重试。' : 'Could not copy. Try again.', 'err'); }
+  finally { copyBusy = false; }
 }
 
 async function togglePin(i) {
@@ -338,14 +567,20 @@ async function togglePin(i) {
     if (!resp.ok) throw new Error(resp.status);
     show(e.pinned ? T.unpinned : T.pinned, 'ok');
     refresh();
-  } catch (err) { show(String(err), 'err'); }
+  } catch (err) { show((zh ? '更新收藏失败：' : 'Could not update favorite: ') + err, 'err'); }
 }
 
 list.addEventListener('click', ev => {
+  const sendBtn = ev.target.closest('[data-send]');
+  if (sendBtn) { sendEntry(entries[+sendBtn.dataset.send]); return; }
+  const copyBtn = ev.target.closest('[data-copy]');
+  if (copyBtn) { if (copyBusy) return; copyBtn.disabled = true; apply(+copyBtn.dataset.copy).finally(() => { copyBtn.disabled = false; }); return; }
+  const downloadBtn = ev.target.closest('[data-download]');
+  if (downloadBtn) { window.PeerCarryTransfers?.download(entries[+downloadBtn.dataset.download]); return; }
   const pinBtn = ev.target.closest('[data-pin]');
   if (pinBtn) { togglePin(+pinBtn.dataset.pin); return; }
   const row = ev.target.closest('.item');
-  if (row) apply(+row.dataset.i);
+  if (row) { sel = +row.dataset.i; render(); }
 });
 
 function moveSelection(delta) {
@@ -356,7 +591,7 @@ function moveSelection(delta) {
 }
 
 document.addEventListener('keydown', ev => {
-  if ($('settings').hidden) {
+  if (!$('timeline').hidden && !ev.target.closest('button, input, select, textarea, [contenteditable="true"]') && !ev.isComposing) {
     if (ev.key === 'ArrowDown') { ev.preventDefault(); moveSelection(1); }
     else if (ev.key === 'ArrowUp') { ev.preventDefault(); moveSelection(-1); }
     else if (ev.key === 'Enter' && !ev.ctrlKey && !ev.metaKey) { ev.preventDefault(); apply(sel); }
@@ -367,9 +602,15 @@ document.addEventListener('keydown', ev => {
 
 let debounce;
 q.addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(refresh, 220); });
+q.addEventListener('keydown', ev => {
+  if (ev.isComposing) return;
+  if (ev.key === 'Enter') { ev.preventDefault(); clearTimeout(debounce); refresh(); }
+  if (ev.key === 'Escape') { q.value = ''; clearTimeout(debounce); refresh(); }
+});
 
 /* ------------------------------------------------------------ AI task alerts */
 const aiDevices = $('ai-devices'), aiStatus = $('ai-tasks-status'), aiReceiver = $('ai-receiver');
+let confirmedAiReceiver = false;
 let aiVisible = false, aiTimer = null, aiBusy = false;
 const AI_STATES = {
   UserPromptSubmit: zh ? '运行中' : 'running',
@@ -409,6 +650,28 @@ function aiAppend(parent, tag, text, className) {
 function renderAi(data) {
   aiDevices.replaceChildren();
   aiReceiver.checked = data && data.receiver_enabled === true;
+  confirmedAiReceiver = aiReceiver.checked;
+  const selection = data && data.receiver_selection;
+  const sync = data && data.receiver_sync;
+  const receiverName = selection && selection.enabled ? selection.display_name : '';
+  const syncLabels = {
+    local_only: zh ? '仅本机；配置 AI 提醒令牌后可跨设备切换' : 'Local only; configure an AI token for cross-device switching',
+    pending: zh ? '切换待同步' : 'Switch pending synchronization',
+    synced: zh ? '当前可见设备已确认相同接收端' : 'Visible devices confirmed the same receiver',
+    partial: zh ? '部分设备尚未确认；离线或旧版电脑可能仍会提醒' : 'Some devices have not confirmed; offline or older devices may still alert',
+  };
+  const details = Object.entries(sync?.devices || {}).filter(([, value]) => value !== 'synced').map(([name, value]) => {
+    const labels = { offline: zh ? '离线/不可达' : 'offline/unreachable', unsupported: zh ? '未支持/未配置' : 'unsupported/unconfigured', pending: zh ? '待同步' : 'pending', unauthorized: zh ? '认证失败' : 'unauthorized', error: zh ? '读取失败' : 'read failed' };
+    const peer = remotePeers.find(p => p.node_id === name);
+    return (peer ? peerLabel(peer) : (zh ? '其他电脑' : 'Another computer')) + ': ' + (labels[value] || value);
+  });
+  $('ai-receiver-summary').textContent = [
+    receiverName ? (zh ? '接收电脑：' : 'Receiver: ') + receiverName : (zh ? '尚未选择跨设备接收端' : 'No cross-device receiver selected'),
+    syncLabels[sync?.status] || (zh ? '同步状态待确认' : 'Synchronization not confirmed'),
+  ].join(' · ');
+  $('ai-sync-details').hidden = !details.length;
+  $('ai-sync-title').textContent = zh ? '查看同步详情' : 'Sync details';
+  $('ai-sync-content').textContent = details.join(' · ');
   const devices = Array.isArray(data && data.devices) ? data.devices : [];
   if (!devices.length) { aiAppend(aiDevices, 'div', zh ? '暂无 AI 任务' : 'No AI tasks', 'ai-empty'); return; }
   for (const device of devices) {
@@ -502,6 +765,8 @@ aiToolScan.onclick = scanAiTools;
 $('ai-tools').querySelector('h3').append(aiToolScan);
 async function setAiReceiver(enabled) {
   aiReceiver.disabled = true;
+  $('ai-take-receiver').disabled = true;
+  const previous = confirmedAiReceiver;
   try {
     const resp = await fetch('/v1/ai/receiver', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) });
     if (!resp.ok) throw new Error(resp.status + (resp.status === 401 ? (zh ? '（需要访问令牌）' : ' (token required)') : ''));
@@ -509,12 +774,14 @@ async function setAiReceiver(enabled) {
     try { data = await resp.json(); } catch (_) { /* a successful 204 is also valid */ }
     aiReceiver.checked = data && typeof data.receiver_enabled === 'boolean' ? data.receiver_enabled : enabled;
     aiStatus.textContent = '';
+    await loadAiOverview();
   } catch (error) {
-    aiReceiver.checked = !enabled;
+    aiReceiver.checked = previous;
     aiStatus.textContent = (zh ? '更新接收设置失败：' : 'Failed to update receiver: ') + String(error);
-  } finally { aiReceiver.disabled = false; }
+  } finally { aiReceiver.disabled = false; $('ai-take-receiver').disabled = false; }
 }
 aiReceiver.onchange = () => setAiReceiver(aiReceiver.checked);
+$('ai-take-receiver').onclick = () => setAiReceiver(true);
 $('tab-ai').onclick = () => showTab('ai');
 $('ai-refresh').onclick = () => loadAiOverview();
 function setAiPolling(active) {
@@ -523,14 +790,129 @@ function setAiPolling(active) {
   aiTimer = active ? setInterval(loadAiOverview, 5000) : null;
 }
 const originalShowTab = showTab;
-showTab = function(which) { setAiPolling(which === 'ai'); originalShowTab(which); };
+showTab = function(which) {
+  return Promise.resolve(originalShowTab(which)).then(moved => {
+    if (moved) setAiPolling(which === 'ai');
+    return moved;
+  });
+};
+
+/* ------------------------------------------------------------ phone pairing */
+let mobileTicket = null;
+let mobileGeneration = 0;
+navLabel('tab-mobile', zh ? '连接手机' : 'Connect phone', 'phone');
+$('tab-mobile').onclick = () => showTab('mobile');
+$('mobile-title').textContent = zh ? '手机与电脑，扫码连接' : 'Pair your phone with this computer';
+$('mobile-help').textContent = zh
+  ? '手机无需安装 Tailscale。生成配对码，在 PeerCarry 手机端选择“设备 → 扫码连接电脑”，确认后即可查看共享历史、发送文字和文件。内容不会自动写入剪贴板。'
+  : 'No Tailscale app needed on your phone. Generate a code, then open Devices → Scan on PeerCarry mobile. Pairing grants history access and text/file uploads. Clipboard writes remain manual.';
+$('mobile-relay-title').textContent = zh ? '跨网连接：配置自己的中继（可选）' : 'Across networks: your relay (optional)';
+$('mobile-relay-help').textContent = zh
+  ? '填写已部署的 FRP TCP 转发地址，映射到本机 127.0.0.1:5197。TLS 在本机终止；中继只转发密文。修改中继前请先停止连接。'
+  : 'Enter an existing FRP TCP relay mapped to 127.0.0.1:5197. TLS terminates on this computer. Stop connections before changing the relay.';
+$('mobile-pair').textContent = zh ? '生成配对二维码' : 'Generate pairing code';
+$('mobile-stop').textContent = zh ? '停止手机连接' : 'Stop phone connections';
+$('mobile-copy').textContent = zh ? '复制配对内容' : 'Copy pairing payload';
+$('mobile-devices-title').textContent = zh ? '已配对设备' : 'Paired devices';
+$('mobile-session-note').textContent = zh
+  ? '配对码 5 分钟内有效，只可配对一台手机。会话最长 24 小时，任一端重启后需重新扫码。切换电脑网络后先停止连接，再重新生成。关闭此页面不会断开已配对设备。'
+  : 'Codes expire in 5 minutes and pair one phone. Sessions last up to 24 hours; restarting either app requires another scan. Stop and regenerate after changing the computer network. Closing this page keeps paired devices connected.';
+function clearMobileQr() {
+  mobileTicket = null;
+  $('mobile-qr-area').hidden = true;
+  $('mobile-qr').removeAttribute('src');
+}
+async function mobileApi(path, method = 'GET', body) {
+  let res;
+  try {
+    res = await fetch('/v1/mobile/' + path, {method, cache:'no-store',
+      headers: {'content-type':'application/json'}, body: body === undefined ? undefined : JSON.stringify(body)});
+  } catch (_) {
+    throw new Error(zh ? '连接失败，请稍后重试。' : 'Could not connect. Try again shortly.');
+  }
+  if (!res.ok) {
+    let code = ''; try { code = (await res.json()).error || ''; } catch (_) {}
+    const errors = {
+      NO_LAN_ADDRESS: zh ? '未找到局域网 IPv4，请连接 Wi-Fi/网线，或配置跨网中继。' : 'No LAN IPv4 found. Connect to Wi-Fi/Ethernet or configure a relay.',
+      INVALID_RELAY_URL: zh ? '中继地址需为 https://主机:端口，不含路径或账号。' : 'Use an HTTPS origin without paths or credentials.',
+      STOP_BEFORE_CHANGING_RELAY: zh ? '请先停止手机连接，再修改中继。' : 'Stop phone connections before changing the relay.',
+      MOBILE_LISTENER_UNAVAILABLE: zh ? '无法启动手机端口 5197，请检查端口占用和上传配置。' : 'Cannot start port 5197. Check port availability and upload configuration.'
+    };
+    throw new Error(errors[code] || (zh ? '请求失败：HTTP ' : 'Request failed: HTTP ') + res.status);
+  }
+  return res.status === 204 ? null : res.json();
+}
+async function loadMobileStatus() {
+  const generation = mobileGeneration;
+  try {
+    const data = await mobileApi('status');
+    if (generation !== mobileGeneration) return;
+    $('mobile-stop').disabled = !data.running;
+    if (data.running) $('mobile-relay').value = data.relay || '';
+    if (mobileTicket && ['used','expired','none'].includes(data.pairing)) {
+      clearMobileQr();
+      $('mobile-status').textContent = data.pairing === 'used'
+        ? (zh ? '手机已配对。可在下方撤销授权。' : 'Phone paired. You can revoke access below.')
+        : (zh ? '配对码已失效，请重新生成。' : 'Code expired. Generate a new one.');
+    }
+    const list = $('mobile-devices'); list.replaceChildren();
+    for (const device of data.devices) {
+      const row = document.createElement('p');
+      const name = document.createElement('span'); name.textContent = device.name + ' · ' + device.id.slice(0,8) + ' ';
+      const button = document.createElement('button'); button.className = 'secondary';
+      button.textContent = zh ? '撤销连接' : 'Revoke';
+      button.onclick = async () => {
+        button.disabled = true;
+        try { await mobileApi('devices/' + encodeURIComponent(device.id), 'DELETE'); await loadMobileStatus(); }
+        catch (e) { $('mobile-status').textContent = e.message; button.disabled = false; }
+      };
+      row.append(name, button); list.append(row);
+    }
+    if (!data.devices.length) list.textContent = zh ? '暂无已配对手机' : 'No paired phones';
+  } catch (e) { $('mobile-status').textContent = e.message; }
+}
+$('mobile-pair').onclick = async () => {
+  mobileGeneration++;
+  $('mobile-pair').disabled = true; clearMobileQr();
+  try {
+    const result = await mobileApi('pairing', 'POST', {relay: $('mobile-relay').value.trim() || null});
+    mobileTicket = result.ticket;
+    $('mobile-qr').src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(result.qr_svg);
+    $('mobile-qr-area').hidden = false;
+    $('mobile-status').textContent = zh ? '等待手机扫码确认。请勿分享配对码。' : 'Waiting for phone confirmation. Keep this code private.';
+    updateMobileExpiry(); await loadMobileStatus();
+  } catch (e) { $('mobile-status').textContent = e.message; }
+  finally { $('mobile-pair').disabled = false; }
+};
+$('mobile-copy').onclick = async () => {
+  if (!mobileTicket) return;
+  try { await navigator.clipboard.writeText(JSON.stringify(mobileTicket));
+    $('mobile-status').textContent = zh ? '已复制，请粘贴到手机“手动输入配对码”。' : 'Copied. Paste into Enter pairing code on your phone.';
+  } catch (_) { $('mobile-status').textContent = zh ? '复制失败，请使用二维码。' : 'Copy failed. Please scan the QR code.'; }
+};
+$('mobile-stop').onclick = async () => {
+  mobileGeneration++;
+  try { await mobileApi('stop', 'POST', {}); clearMobileQr();
+    $('mobile-status').textContent = zh ? '所有手机连接已停止，授权已撤销。' : 'Phone connections stopped and authorizations revoked.';
+    await loadMobileStatus();
+  } catch (e) { $('mobile-status').textContent = e.message; }
+};
+function updateMobileExpiry() {
+  if (!mobileTicket) return;
+  const seconds = mobileTicket.expires_at - Math.floor(Date.now()/1000);
+  if (seconds <= 0) {
+    clearMobileQr(); $('mobile-status').textContent = zh ? '配对码已过期，请重新生成。' : 'Pairing code expired.'; return;
+  }
+  $('mobile-expiry').textContent = (zh ? '剩余有效时间：' : 'Expires in ') + Math.floor(seconds/60) + ':' + String(seconds%60).padStart(2,'0');
+}
+setInterval(() => { updateMobileExpiry(); if (!$('mobile-connect').hidden && !document.hidden) loadMobileStatus(); }, 3000);
 
 /* ------------------------------------------------------------ settings */
 // Every configurable knob; `restart` fields are read once at startup, only
 // the download folder applies to the running service.
 const FIELDS = [
   { sec: zh ? 'AI 跨设备提醒' : 'AI peer notifications' },
-  { path: 'ai_token', type: 'password', restart: 1, label: zh ? 'AI 共享令牌（各设备相同，至少 32 字符；留空仅本机）' : 'AI shared token (same on peers, minimum 32 characters; empty for local only)' },
+  { path: 'ai_token', type: 'password', restart: 1, label: zh ? 'AI 共享令牌' : 'AI shared token' },
   { sec: zh ? '软件更新（保存后生效）' : 'Software updates (applies after saving)' },
   { path: 'updates.auto_check', type: 'bool', label: zh ? '自动检查更新（仅提醒，不自动安装）' : 'Automatically check for updates (notify only)' },
   { path: 'updates.check_interval_hours', type: 'number', min: 1, max: 168, label: zh ? '检查间隔（小时，1–168）' : 'Check interval (hours, 1–168)' },
@@ -548,7 +930,7 @@ const FIELDS = [
   { sec: zh ? '网络' : 'Network' },
   { path: 'network.port', type: 'number', restart: 1, label: 'Port' },
   { path: 'network.bind', type: 'text', restart: 1, label: 'Bind', ph: zh ? '留空自动绑定 Tailscale IP' : 'empty = auto (Tailscale IP)' },
-  { path: 'network.auth_token', type: 'password', restart: 1, label: zh ? '访问令牌' : 'Auth token', ph: zh ? '留空不启用' : 'empty = off' },
+  { path: 'network.auth_token', type: 'password', restart: 1, label: zh ? '访问令牌' : 'Auth token' },
   { path: 'network.request_timeout_secs', type: 'number', restart: 1, label: zh ? '请求超时（秒）' : 'Request timeout (s)' },
   { path: 'network.connect_timeout_secs', type: 'number', restart: 1, label: zh ? '连接超时（秒）' : 'Connect timeout (s)' },
   { path: 'network.discovery_concurrency', type: 'number', restart: 1, label: zh ? '发现并发数' : 'Discovery concurrency' },
@@ -564,22 +946,207 @@ const FIELDS = [
   { path: 'storage.data_dir', type: 'text', restart: 1, label: zh ? '数据目录' : 'Data directory', ph: zh ? '留空 = 默认位置' : 'empty = default location' },
 ];
 
-let cfg = null;
+let cfg = null, configOriginal = null, configRevision = '', configSecrets = {};
+let configLoadSequence = 0, configReady = false, configBusy = false, appsDirty = false;
+let configSaving = false, settingsPendingTab = null;
+let configInstance = '', configDesktopUrl = null, configRecovery = null;
+const OPTIONAL_SETTINGS = new Set(['node.name', 'network.bind', 'storage.download_dir', 'storage.data_dir']);
+$('cfg-reload').textContent = zh ? '重新加载' : 'Reload';
+$('cfg-leave-help').textContent = zh ? '有尚未保存的设置。继续编辑，或明确放弃更改后离开。' : 'You have unsaved settings. Continue editing, or discard the changes before leaving.';
+$('cfg-stay').textContent = zh ? '继续编辑' : 'Continue editing';
+$('cfg-discard').textContent = zh ? '放弃更改并离开' : 'Discard changes and leave';
+$('cfg-leave').hidden = true;
 
-function getByPath(obj, path) {
-  return path.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);
+function clearSettingsLeavePrompt() {
+  settingsPendingTab = null;
+  $('cfg-leave').hidden = true;
 }
-function setByPath(obj, path, value) {
-  const keys = path.split('.');
-  const last = keys.pop();
-  keys.reduce((o, k) => o[k], obj)[last] = value;
+function clearSettingsForm() {
+  $('cfgform').innerHTML = '';
+  $('apps-rows').innerHTML = '';
+  cfg = configOriginal = null;
+  configRevision = '';
+  configSecrets = {};
+  configInstance = '';
+  configDesktopUrl = null;
+  appsDirty = false;
+}
+function hasSettingsDraft() {
+  if (!cfg || !configOriginal) return false;
+  for (const path of ['network.auth_token', 'ai_token']) {
+    if (($('cfgform').querySelector(`[data-secret-op="${path}"]`)?.value || 'keep') !== 'keep' ||
+        $('cfgform').querySelector(`[data-path="${path}"]`)?.value) return true;
+  }
+  try {
+    const payload = collectConfig();
+    return Object.keys(payload.changes).length > 0 || Object.keys(payload.secret_changes).length > 0;
+  } catch (_) { return true; }
+}
+$('cfg-stay').onclick = clearSettingsLeavePrompt;
+$('cfg-discard').onclick = () => {
+  if (configSaving || !settingsPendingTab) return Promise.resolve(false);
+  const destination = settingsPendingTab;
+  clearSettingsForm();
+  clearSettingsLeavePrompt();
+  return showTab(destination);
+};
+
+function setConfigBusy(busy) {
+  configBusy = busy;
+  $('cfg-save').disabled = $('cfg-save-restart').disabled = busy || !configReady;
+  $('app-add').disabled = busy || !configReady;
+  $('cfg-reload').disabled = busy;
+  $('cfgform').inert = $('apps-rows').inert = busy || !configReady;
 }
 
-function loadConfig() {
-  fetch('/v1/config')
-    .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
-    .then(data => { cfg = data; renderSettings(); })
-    .catch(e => show(T.cfgFetchFail + e, 'err'));
+function acceptSettingsEnvelope(data) {
+  if (!data || data.schema !== 1 || typeof data.revision !== 'string' || !data.revision ||
+      !data.values || typeof data.values !== 'object' || !Array.isArray(data.values.apps) ||
+      !data.secrets || typeof data.secrets['network.auth_token'] !== 'boolean' ||
+      typeof data.secrets.ai_token !== 'boolean') throw new Error('invalid envelope');
+  const values = {};
+  for (const field of FIELDS) {
+    if (!field.path || field.type === 'password') continue;
+    const value = data.values[field.path];
+    if ((field.type === 'bool' && typeof value !== 'boolean') ||
+        (field.type === 'number' && (!Number.isSafeInteger(value) || value < 0)) ||
+        (field.type === 'text' && typeof value !== 'string' && !(OPTIONAL_SETTINGS.has(field.path) && value === null))) {
+      throw new Error('invalid field');
+    }
+    values[field.path] = value;
+  }
+  const apps = data.values.apps.map(app => {
+    if (!app || typeof app.name !== 'string' || typeof app.path !== 'string' ||
+        !Array.isArray(app.args) || !app.args.every(arg => typeof arg === 'string')) throw new Error('invalid app');
+    return { name: app.name, path: app.path, args: [...app.args] };
+  });
+  cfg = { values, apps };
+  configOriginal = { values: { ...values }, apps: apps.map(app => ({ ...app, args: [...app.args] })) };
+  configRevision = data.revision;
+  configSecrets = { 'network.auth_token': data.secrets['network.auth_token'], ai_token: data.secrets.ai_token };
+  configInstance = typeof data.instance_id === 'string' ? data.instance_id : '';
+  configDesktopUrl = localReconnectUrl(data.desktop_url);
+  appsDirty = false;
+}
+
+function localReconnectUrl(value) {
+  if (typeof value !== 'string') return null;
+  try {
+    const url = new URL(value);
+    const host = url.hostname;
+    const octets = host.split('.');
+    const loopback = host === 'localhost' || host === '[::1]' ||
+      (octets.length === 4 && octets[0] === '127' && octets.every(n => /^\d+$/.test(n) && +n <= 255));
+    return loopback && url.protocol === 'http:' && !url.username && !url.password &&
+      url.pathname === '/' && !url.search && !url.hash ? url : null;
+  } catch (_) { return null; }
+}
+function stopRestartRecovery() {
+  if (!configRecovery) return;
+  clearTimeout(configRecovery.timer);
+  configRecovery.controller?.abort();
+  configRecovery = null;
+}
+window.addEventListener?.('pagehide', stopRestartRecovery);
+function showReconnectLink(url) {
+  const link = $('cfg-reconnect');
+  link.hidden = !url;
+  if (!url) { link.removeAttribute('href'); return; }
+  link.href = url.href;
+  link.rel = 'noopener noreferrer';
+  link.textContent = (zh ? '重新打开本机页面：' : 'Open the local page: ') + url.href;
+}
+function beginRestartRecovery(ticket, lost = false) {
+  stopRestartRecovery();
+  configReady = false;
+  $('cfg-reload').hidden = false;
+  showReconnectLink(configDesktopUrl);
+  status(lost
+    ? (zh ? '已保存，连接中断，重启结果尚未确认。正在检查连接…' : 'Saved; the connection was lost and restart is unconfirmed. Checking the connection…')
+    : (zh ? '已请求重启，连接尚未确认。正在检查连接…' : 'Restart requested; reconnection is not yet confirmed. Checking the connection…'), '');
+  const pageUrl = localReconnectUrl(window.location?.origin + '/');
+  // Loopback aliases can name the same listener. Always probe the current
+  // origin, and only while the planned port remains the same.
+  if (!configInstance || !configDesktopUrl || !pageUrl || configDesktopUrl.port !== pageUrl.port) {
+    status(zh ? '已保存，重启结果尚未确认。请稍后打开本机页面，或从托盘重新进入。' : 'Saved; restart is unconfirmed. Open the local page shortly, or reopen it from the tray.', '');
+    return;
+  }
+  const recovery = { ticket, instance: configInstance, attempts: 0, deadline: Date.now() + 15000 };
+  configRecovery = recovery;
+  recovery.timer = setTimeout(() => checkRestartRecovery(recovery), 500);
+}
+async function checkRestartRecovery(recovery) {
+  const current = () => configRecovery === recovery && recovery.ticket === configLoadSequence && activeTab === 'settings';
+  if (!current()) return;
+  const controller = new AbortController();
+  recovery.controller = controller;
+  const timeout = setTimeout(() => controller.abort(), 1200);
+  ++recovery.attempts;
+  try {
+    const response = await fetch('/v1/desktop/settings', { cache: 'no-store', redirect: 'error', signal: controller.signal });
+    if (!current()) return;
+    if (response.ok) {
+      const data = await response.json();
+      if (!current()) return;
+      if (typeof data.instance_id === 'string' && data.instance_id && data.instance_id !== recovery.instance &&
+          typeof data.restart_recommended === 'boolean') {
+        acceptSettingsEnvelope(data);
+        stopRestartRecovery();
+        configReady = true;
+        $('cfg-reload').hidden = true;
+        showReconnectLink(null);
+        renderSettings();
+        setConfigBusy(false);
+        status(data.restart_recommended
+          ? (zh ? '服务已恢复；仍有设置修改需重启后生效。' : 'Service reconnected. Some settings still require a restart.')
+          : (zh ? '服务已重新连接，设置已重新加载。' : 'Service reconnected; settings reloaded.'), 'ok');
+        return;
+      }
+    }
+  } catch (_) {
+    // A refused connection is expected while the replacement is starting.
+  } finally {
+    clearTimeout(timeout);
+    if (recovery.controller === controller) recovery.controller = null;
+  }
+  if (!current()) return;
+  if (recovery.attempts >= 20 || Date.now() >= recovery.deadline) {
+    stopRestartRecovery();
+    status(zh ? '重启结果尚未确认。请重新加载，或从本机入口检查服务。' : 'Restart is unconfirmed. Reload, or check the service through the local page.', 'err');
+    return;
+  }
+  recovery.timer = setTimeout(() => checkRestartRecovery(recovery), 500);
+}
+
+async function loadConfig() {
+  if (configSaving) return false;
+  stopRestartRecovery();
+  const ticket = ++configLoadSequence;
+  clearSettingsLeavePrompt();
+  configReady = false;
+  setConfigBusy(true);
+  $('cfg-reload').hidden = true;
+  try {
+    const response = await fetch('/v1/desktop/settings', { cache: 'no-store' });
+    if (!response.ok) throw new Error('unavailable');
+    const data = await response.json();
+    if (ticket !== configLoadSequence || activeTab !== 'settings') return false;
+    acceptSettingsEnvelope(data);
+    showReconnectLink(null);
+    configReady = true;
+    renderSettings();
+    setConfigBusy(false);
+    status('', '');
+    return true;
+  } catch (_) {
+    if (ticket === configLoadSequence && activeTab === 'settings') {
+      configReady = false;
+      setConfigBusy(false);
+      $('cfg-reload').hidden = false;
+      status(zh ? '无法读取本机设置，请检查服务后重新加载。' : 'Could not load local settings. Check the service and reload.', 'err');
+    }
+    return false;
+  }
 }
 
 function renderSettings() {
@@ -587,21 +1154,35 @@ function renderSettings() {
   let html = '';
   for (const f of FIELDS) {
     if (f.sec) { html += `<h2>${f.sec}</h2>`; continue; }
-    const value = getByPath(cfg, f.path);
+    const value = f.type === 'password' ? '' : cfg.values[f.path];
     const note = f.live
       ? `<span class="note live">${T.liveNote}</span>`
       : f.restart ? `<span class="note restart">${T.restartNote}</span>` : '';
-    const input = f.type === 'bool'
-      ? `<input type="checkbox" data-path="${f.path}" ${value ? 'checked' : ''}>`
-      : `<input type="${f.type === 'number' ? 'number' : f.type}" data-path="${f.path}" ${f.min != null ? `min="${f.min}" max="${f.max}" step="1"` : ''}
-           value="${escapeHtml(value == null ? '' : String(value))}" placeholder="${escapeHtml(f.ph || '')}">`;
-    html += `<div class="row"><label class="main">${f.label}</label><div class="ctl">${input}</div>${note}</div>`;
+    let input;
+    if (f.type === 'password') {
+      const configured = configSecrets[f.path] ? (zh ? '已配置' : 'Configured') : (zh ? '未配置' : 'Not configured');
+      input = `<span class="secret-state">${configured}</span>
+        <select data-secret-op="${f.path}" aria-label="${escapeHtml(f.label)}">
+          <option value="keep">${zh ? '保持' : 'Keep'}</option>
+          <option value="replace">${zh ? '替换' : 'Replace'}</option>
+          <option value="clear">${zh ? '清除' : 'Clear'}</option>
+        </select>
+        <input type="password" data-path="${f.path}" aria-label="${escapeHtml(f.label)}" autocomplete="new-password" disabled
+          placeholder="${zh ? '输入新令牌' : 'Enter a new token'}">`;
+    } else if (f.type === 'bool') {
+      input = `<input id="cfg-${f.path}" type="checkbox" data-path="${f.path}" ${value ? 'checked' : ''}>`;
+    } else {
+      input = `<input id="cfg-${f.path}" type="${f.type === 'number' ? 'number' : 'text'}" data-path="${f.path}" ${f.min != null ? `min="${f.min}" max="${f.max}" step="1"` : ''}
+        value="${escapeHtml(value == null ? '' : String(value))}" placeholder="${escapeHtml(f.ph || '')}">`;
+    }
+    html += `<div class="row"><label class="main" ${f.type === 'password' ? '' : `for="cfg-${f.path}"`}>${f.label}</label><div class="ctl">${input}</div>${note}</div>`;
   }
   form.innerHTML = html;
   renderApps();
   $('app-add').textContent = T.appAdd;
   $('cfg-save').textContent = T.save;
   $('cfg-save-restart').textContent = T.saveRestart;
+  $('cfg-reload').textContent = zh ? '重新加载' : 'Reload';
   $('apps-title').textContent = T.apps;
 }
 
@@ -617,29 +1198,71 @@ function renderApps() {
 }
 
 $('app-add').onclick = () => {
-  cfg = cfg || { apps: [] };
+  if (!configReady || configBusy) return;
+  cfg.apps = readApps();
   cfg.apps.push({ name: '', path: '', args: [] });
+  appsDirty = true;
   renderApps();
 };
 $('apps-rows').addEventListener('click', ev => {
   const del = ev.target.closest('[data-app-del]');
-  if (del) { cfg.apps.splice(+del.dataset.appDel, 1); renderApps(); }
+  if (del && configReady && !configBusy) {
+    cfg.apps = readApps();
+    cfg.apps.splice(+del.dataset.appDel, 1);
+    appsDirty = true;
+    renderApps();
+  }
+});
+$('apps-rows').addEventListener('input', ev => {
+  if (ev.target.dataset.appField) appsDirty = true;
+});
+$('cfgform').addEventListener('change', ev => {
+  const path = ev.target.dataset.secretOp;
+  if (!path) return;
+  const input = $('cfgform').querySelector(`[data-path="${path}"]`);
+  if (input) input.disabled = ev.target.value !== 'replace';
 });
 
+function readApps() {
+  return [...document.querySelectorAll('#apps-rows [data-app]')].map((row, index) => {
+    const argsText = row.querySelector('[data-app-field=args]').value;
+    const prior = cfg.apps[index]?.args || [];
+    return {
+      name: row.querySelector('[data-app-field=name]').value.trim(),
+      path: row.querySelector('[data-app-field=path]').value.trim(),
+      args: argsText === prior.join(', ') ? [...prior] : argsText.split(',').map(s => s.trim()).filter(Boolean),
+    };
+  });
+}
+
 function collectConfig() {
+  const changes = {}, secretChanges = {};
   document.querySelectorAll('#cfgform [data-path]').forEach(input => {
     const path = input.dataset.path;
+    const field = FIELDS.find(f => f.path === path);
+    if (!field || field.type === 'password') return;
     let value;
     if (input.type === 'checkbox') value = input.checked;
-    else if (input.type === 'number') value = input.value === '' ? 0 : Number(input.value);
-    else value = input.value;
-    setByPath(cfg, path, value);
+    else if (input.type === 'number') {
+      value = Number(input.value);
+      if (input.value.trim() === '' || !Number.isSafeInteger(value) || value < 0) throw new Error('invalid field');
+    } else value = input.value === '' && OPTIONAL_SETTINGS.has(path) ? null : input.value;
+    if (value !== configOriginal.values[path]) changes[path] = value;
   });
-  cfg.apps = [...document.querySelectorAll('#apps-rows [data-app]')].map(row => ({
-    name: row.querySelector('[data-app-field=name]').value.trim(),
-    path: row.querySelector('[data-app-field=path]').value.trim(),
-    args: row.querySelector('[data-app-field=args]').value.split(',').map(s => s.trim()).filter(Boolean),
-  }));
+  if (appsDirty) {
+    const apps = readApps();
+    if (JSON.stringify(apps) !== JSON.stringify(configOriginal.apps)) changes.apps = apps;
+  }
+  for (const path of ['network.auth_token', 'ai_token']) {
+    const op = $('cfgform').querySelector(`[data-secret-op="${path}"]`)?.value || 'keep';
+    if (op === 'clear') secretChanges[path] = { op: 'clear' };
+    else if (op === 'replace') {
+      const value = $('cfgform').querySelector(`[data-path="${path}"]`)?.value || '';
+      if (!/^[\x21-\x7e]{32,256}$/.test(value)) throw new Error('invalid token');
+      secretChanges[path] = { op: 'replace', value };
+    } else if (op !== 'keep') throw new Error('invalid operation');
+  }
+  return { revision: configRevision, changes, secret_changes: secretChanges };
 }
 
 function status(msg, cls) {
@@ -649,160 +1272,270 @@ function status(msg, cls) {
 }
 
 async function saveConfig(andRestart) {
-  collectConfig();
-  const statusText = $('cfg-status');
+  if (!configReady || !cfg || configBusy) return;
+  let payload;
   try {
-    const resp = await fetch('/v1/config', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(cfg),
-    });
-    if (!resp.ok) { statusText.textContent = await resp.text(); statusText.className = 'err'; return; }
-  } catch (e) { statusText.textContent = String(e); statusText.className = 'err'; return; }
-
-  if (!andRestart) { statusText.textContent = T.saved; statusText.className = 'ok'; return; }
-
-  statusText.textContent = T.restarting;
-  statusText.className = '';
-  try {
-    const resp = await fetch('/v1/actions/restart', { method: 'POST' });
-    if (!resp.ok) { statusText.textContent = await resp.text(); statusText.className = 'err'; return; }
-  } catch (e) { /* the daemon may drop the connection as it exits */ }
-
-  // Wait for the fresh process to answer again.
-  const deadline = Date.now() + 20000;
-  while (Date.now() < deadline) {
-    await new Promise(r => setTimeout(r, 800));
-    try {
-      const hello = await fetch('/v1/hello');
-      if (hello.ok) { statusText.textContent = T.restarted; statusText.className = 'ok'; loadConfig(); return; }
-    } catch (e) { /* still restarting */ }
+    payload = collectConfig();
+  } catch (_) {
+    status(zh ? '请检查数值；替换令牌须为 32 至 256 个可见非空白 ASCII 字符。' : 'Check numeric values. A replacement token must contain 32–256 visible non-whitespace ASCII characters.', 'err');
+    return;
   }
-  statusText.textContent = 'timeout'; statusText.className = 'err';
+  const ticket = configLoadSequence;
+  stopRestartRecovery();
+  showReconnectLink(null);
+  clearSettingsLeavePrompt();
+  configSaving = true;
+  setConfigBusy(true);
+  status(zh ? '正在保存…' : 'Saving…', '');
+  try {
+    const response = await fetch('/v1/desktop/settings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (ticket !== configLoadSequence || activeTab !== 'settings') return;
+    if (!response.ok) {
+      if ([401, 403, 404, 405, 409].includes(response.status) || response.status >= 500) {
+        configReady = false;
+        $('cfg-reload').hidden = false;
+      }
+      status(response.status === 409
+        ? (zh ? '配置已更改，当前表单已保留。请明确重新加载后再保存。' : 'Settings changed elsewhere. Your form is kept; reload before saving.')
+        : (zh ? '保存失败，当前表单已保留。请检查输入或重新加载。' : 'Could not save. Your form is kept; check the input or reload.'), 'err');
+      return;
+    }
+    const data = await response.json();
+    if (ticket !== configLoadSequence || activeTab !== 'settings') return;
+    acceptSettingsEnvelope(data);
+    renderSettings();
+    status(data.restart_recommended
+      ? (zh ? '已保存，部分修改需重启后生效。' : 'Saved. Some changes require a restart.')
+      : (zh ? '已保存。' : 'Saved.'), 'ok');
+    if (!andRestart) return;
+    status(zh ? '已保存，正在请求重启…' : 'Saved. Requesting restart…', '');
+    try {
+      const restart = await fetch('/v1/desktop/settings/restart', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ revision: configRevision }),
+      });
+      if (ticket !== configLoadSequence || activeTab !== 'settings') return;
+      if (!restart.ok) {
+        if (restart.status === 409) {
+          const error = await restart.json().catch(() => ({}));
+          if (ticket !== configLoadSequence || activeTab !== 'settings') return;
+          if (error.error === 'restart_pending') { beginRestartRecovery(ticket); return; }
+        }
+        if (restart.status === 409) { configReady = false; $('cfg-reload').hidden = false; }
+        status(zh ? '已保存，但重启请求未成功。请检查服务并重新加载。' : 'Saved, but the restart request failed. Check the service and reload.', 'err');
+        return;
+      }
+      beginRestartRecovery(ticket);
+    } catch (_) {
+      if (ticket !== configLoadSequence || activeTab !== 'settings') return;
+      beginRestartRecovery(ticket, true);
+    }
+  } catch (_) {
+    if (ticket !== configLoadSequence || activeTab !== 'settings') return;
+    configReady = false;
+    $('cfg-reload').hidden = false;
+    status(zh ? '保存结果未确认，表单已保留。请重新加载后核对。' : 'Save could not be confirmed. Your form is kept; reload to check.', 'err');
+  } finally {
+    configSaving = false;
+    if (ticket === configLoadSequence && activeTab === 'settings') setConfigBusy(false);
+  }
 }
 
 $('cfg-save').onclick = () => saveConfig(false);
 $('cfg-save-restart').onclick = () => saveConfig(true);
+$('cfg-reload').onclick = () => loadConfig();
 
-/* ------------------------------------------------------------ boot */
-const remotePeer = $('remote-peer'), remoteRefresh = $('remote-refresh'), remoteFetch = $('remote-fetch');
-$('remote-refresh').textContent = zh ? '刷新设备' : 'Refresh devices';
-$('remote-capture-title').textContent = zh ? '从其他设备获取当前剪贴板' : 'Fetch the current clipboard from another device';
-$('remote-capture-help').textContent = zh
-  ? '主动从所选在线设备获取一条当前剪贴板记录；获取后只刷新历史，不会自动改写本机剪贴板。'
-  : 'Fetch one current clipboard entry from the selected online device. The history refreshes after fetching; your local clipboard is not changed.';
-remoteFetch.textContent = zh ? '获取当前剪贴板' : 'Fetch current clipboard';
-remotePeer.textContent = zh ? '正在读取设备…' : 'Loading devices…';
-remotePeer.disabled = true;
-remoteFetch.disabled = true;
-let remoteBusy = false;
-
-function setRemoteStatus(message, error) {
-  const el = $('remote-capture-status');
-  el.textContent = message;
-  el.style.color = error ? 'var(--warn)' : 'var(--ok)';
+/* ------------------------------------------------------------ workbench */
+const remotePeer = $('remote-peer'), remoteRefresh = $('remote-refresh'), remoteFetch = $('remote-fetch'), remoteSend = $('remote-send');
+const remoteFavorite = $('remote-favorite'), devicePreferences = window.PeerCarryDevicePreferences;
+$('remote-refresh').textContent = zh ? '刷新设备' : 'Refresh';
+$('remote-capture-title').textContent = zh ? '发送到哪台电脑？' : 'Where should it go?';
+$('device-cards').setAttribute('aria-label', zh ? '选择目标电脑' : 'Choose a computer');
+$('remote-capture-help').textContent = zh ? '离线也能发送，上线后送达。获取的内容会放入最近记录。' : 'Offline? We’ll queue it. Fetched content goes to your recent items.';
+remoteFetch.innerHTML = icon('download') + (zh ? '获取对方剪贴板' : 'Fetch clipboard');
+remoteSend.innerHTML = icon('send') + (zh ? '发送当前剪贴板' : 'Send current clipboard');
+let remoteBusy = false, remotePeers = [], peerLoadSequence = 0, remotePreferencesDirty = false, peerRefreshPending = false;
+function currentPeer() { return remotePeer.value ? remotePeers.find(peer => peer.node_id === remotePeer.value) : undefined; }
+function peerLabel(peer) { return peer.host || peer.dns_name || (zh ? '未命名电脑' : 'Unnamed computer'); }
+function sentMessage(peer) {
+  return peer.online === false
+    ? (zh ? `已排队，${peerLabel(peer)} 上线后发送。` : `Queued for ${peerLabel(peer)} when it’s online.`)
+    : (zh ? `已加入发送队列 · ${peerLabel(peer)}` : `Queued for ${peerLabel(peer)}.`);
 }
-
+function setRemoteStatus(message, error = false, transferred = false) {
+  const element = $('remote-capture-status');
+  element.textContent = message;
+  element.style.color = error ? 'var(--warn)' : 'var(--ok)';
+  if (transferred) {
+    const link = document.createElement('button');
+    link.className = 'inline-link';
+    link.textContent = zh ? '查看进度' : 'View progress';
+    link.onclick = () => showTab('transfers');
+    element.append(link);
+  }
+}
 function updateRemoteControls() {
-  const online = [...remotePeer.options].some(option => !option.disabled && option.value);
-  remotePeer.disabled = remoteBusy || !online;
+  const peer = currentPeer();
+  remotePeer.disabled = remoteBusy || !remotePeers.length;
   remoteRefresh.disabled = remoteBusy;
-  remoteFetch.disabled = remoteBusy || !online || !remotePeer.value || remotePeer.selectedOptions[0]?.disabled;
+  remoteSend.disabled = remoteBusy || !peer;
+  remoteFetch.disabled = remoteBusy || !peer || peer.online === false;
+  const favorite = !!peer && devicePreferences.read().favorites.includes(peer.node_id);
+  remoteFavorite.disabled = remoteBusy || !peer;
+  remoteFavorite.textContent = favorite ? (zh ? '★ 已收藏' : '★ Favorited') : (zh ? '☆ 收藏设备' : '☆ Favorite');
+  remoteFavorite.title = favorite ? (zh ? '取消收藏此设备' : 'Remove this favorite') : (zh ? '收藏此设备' : 'Favorite this device');
+  remoteFavorite.setAttribute('aria-label', remoteFavorite.title);
+  remoteFavorite.setAttribute('aria-pressed', String(favorite));
+  for (const card of $('device-cards').querySelectorAll('button')) {
+    const selected = card.dataset.nodeId === peer?.node_id;
+    card.disabled = remoteBusy;
+    card.classList.toggle('selected', selected);
+    card.setAttribute('aria-pressed', String(selected));
+    card.querySelector('.device-check').hidden = !selected;
+  }
 }
-
-function peerLabel(peer) {
-  const name = typeof peer.host === 'string' && peer.host.trim() ? peer.host.trim() : peer.node_id;
-  const addr = typeof peer.addr === 'string' && peer.addr.trim() ? ` (${peer.addr.trim()})` : '';
-  return `${name}${addr}`;
+function renderDeviceCards(focusId = '') {
+  const cards = $('device-cards');
+  cards.replaceChildren();
+  if (!remotePeers.length) {
+    const empty = document.createElement('p');
+    empty.className = 'empty';
+    empty.textContent = zh ? '还没发现其他电脑。请在另一台电脑上打开 PeerCarry，再刷新。' : 'No other computers yet. Open PeerCarry on another computer, then refresh.';
+    cards.append(empty);
+    return;
+  }
+  const saved = devicePreferences.read(), order = [...saved.favorites, ...saved.recent];
+  const orderedPeers = [...remotePeers].sort((a, b) => {
+    const ai = order.indexOf(a.node_id), bi = order.indexOf(b.node_id);
+    return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi) || peerLabel(a).localeCompare(peerLabel(b));
+  });
+  let focusCard = null;
+  for (const peer of orderedPeers) {
+    const card = document.createElement('button');
+    card.className = 'device-card';
+    card.dataset.nodeId = peer.node_id;
+    card.innerHTML = icon('laptop');
+    const name = document.createElement('span'); name.className = 'device-name'; name.textContent = peerLabel(peer) + (saved.favorites.includes(peer.node_id) ? ' ★' : ''); name.title = peerLabel(peer);
+    const presence = document.createElement('span'); presence.className = 'device-status' + (peer.online === false ? '' : ' online');
+    presence.textContent = peer.online === false ? (zh ? '离线 · 可排队' : 'Offline · can queue') : (zh ? '在线' : 'Online');
+    const check = document.createElement('span'); check.className = 'device-check'; check.textContent = '✓'; check.setAttribute('aria-hidden', 'true');
+    card.append(name, presence, check);
+    card.onclick = () => {
+      if (remoteBusy) return;
+      remotePeer.value = peer.node_id;
+      devicePreferences.select(peer.node_id);
+      $('remote-target-notice').textContent = '';
+      setRemoteStatus('');
+      renderDeviceCards(peer.node_id);
+    };
+    cards.append(card);
+    if (peer.node_id === focusId) focusCard = card;
+  }
+  updateRemoteControls();
+  focusCard?.focus();
 }
-
+function restoreTarget() {
+  const resolved = devicePreferences.resolve(remotePeers.map(peer => peer.node_id));
+  remotePeer.value = resolved.selected;
+  renderDeviceCards();
+  $('remote-target-notice').textContent = resolved.missing
+    ? (zh ? '之前选择的电脑未发现，请重新选择。' : 'The previously selected computer is unavailable. Choose another.')
+    : (!resolved.selected && remotePeers.length ? (zh ? '请选择目标电脑。' : 'Choose a target computer.') : '');
+}
+function finishRemoteBusy() {
+  remoteBusy = false;
+  if (remotePreferencesDirty) { remotePreferencesDirty = false; restoreTarget(); }
+  updateRemoteControls();
+  if (peerRefreshPending) { peerRefreshPending = false; void loadPeers(); }
+}
 async function loadPeers() {
-  if (remoteBusy) return;
-  const previousNodeId = remotePeer.value;
-  remotePeer.replaceChildren();
-  const loading = document.createElement('option');
-  loading.textContent = zh ? '正在读取设备…' : 'Loading devices…';
-  loading.disabled = true;
-  loading.selected = true;
-  remotePeer.append(loading);
-  remotePeer.disabled = true;
-  remoteRefresh.disabled = true;
-  remoteFetch.disabled = true;
+  if (remoteBusy) { peerRefreshPending = true; return; }
+  const ticket = ++peerLoadSequence;
+  remoteBusy = true; updateRemoteControls();
   try {
-    const resp = await fetch('/v1/peers');
-    if (!resp.ok) throw new Error(resp.status);
-    const peers = await resp.json();
+    const response = await fetch('/v1/peers');
+    if (!response.ok) throw new Error(response.status);
+    const data = await response.json();
+    if (ticket !== peerLoadSequence) return;
+    remotePeers = (Array.isArray(data) ? data : []).filter(p => p && devicePreferences.isValidId(p.node_id));
     remotePeer.replaceChildren();
-    for (const peer of Array.isArray(peers) ? peers : []) {
-      if (!peer || typeof peer.node_id !== 'string' || !peer.node_id) continue;
-      const option = document.createElement('option');
-      option.value = peer.node_id;
-      option.textContent = peerLabel(peer);
-      option.disabled = peer.online === false;
-      remotePeer.append(option);
+    const placeholder = document.createElement('option'); placeholder.value = ''; remotePeer.append(placeholder);
+    for (const peer of remotePeers) {
+      const option = document.createElement('option'); option.value = peer.node_id; option.textContent = peerLabel(peer); remotePeer.append(option);
     }
-    if (!remotePeer.options.length) {
-      const empty = document.createElement('option');
-      empty.textContent = zh ? '没有可用设备' : 'No devices available';
-      empty.disabled = true;
-      empty.selected = true;
-      remotePeer.append(empty);
-    }
-    const preserved = [...remotePeer.options].findIndex(option => option.value === previousNodeId && !option.disabled);
-    const firstOnline = [...remotePeer.options].findIndex(option => !option.disabled && option.value);
-    if (preserved >= 0) remotePeer.selectedIndex = preserved;
-    else if (firstOnline >= 0) remotePeer.selectedIndex = firstOnline;
-    updateRemoteControls();
-    if (firstOnline < 0) setRemoteStatus(zh ? '没有在线设备' : 'No online devices', true);
-  } catch (e) {
-    remotePeer.replaceChildren();
-    const failed = document.createElement('option');
-    failed.textContent = zh ? '读取设备失败' : 'Failed to load devices';
-    failed.disabled = true;
-    failed.selected = true;
-    remotePeer.append(failed);
-    remotePeer.disabled = true;
-    remoteRefresh.disabled = false;
-    remoteFetch.disabled = true;
-    setRemoteStatus((zh ? '读取设备失败：' : 'Failed to load devices: ') + e, true);
-  }
+    restoreTarget();
+  } catch (error) {
+    remotePeers = []; remotePeer.value = ''; renderDeviceCards();
+    $('remote-target-notice').textContent = '';
+    setRemoteStatus(zh ? '暂时无法读取设备，请确认服务已启动后重试。' : 'Could not load computers. Check that the service is running and try again.', true);
+  } finally { finishRemoteBusy(); }
 }
-
-remotePeer.onchange = updateRemoteControls;
-remoteRefresh.onclick = () => loadPeers();
-remoteFetch.onclick = async () => {
-  const nodeId = remotePeer.value;
-  if (!nodeId || remoteFetch.disabled) return;
-  remoteBusy = true;
-  remoteFetch.disabled = true;
-  remotePeer.disabled = true;
-  remoteRefresh.disabled = true;
-  setRemoteStatus(zh ? '正在获取…' : 'Fetching…', false);
-  try {
-    const resp = await fetch('/v1/actions/fetch-clipboard', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ node_id: nodeId }),
-    });
-    if (!resp.ok) {
-      const detail = await resp.text();
-      if (resp.status === 403) throw new Error(zh ? '目标设备未开启“允许对端获取本机剪贴板”，请开启后重启服务。' : 'The target device has not enabled “Allow peers to fetch clipboard”; enable it and restart the service.');
-      throw new Error(`${resp.status} ${detail}`);
-    }
-    await resp.json();
-    setRemoteStatus(zh ? '已获取，请在历史中查看；本机剪贴板未改变。' : 'Fetched; check the history. Local clipboard unchanged.', false);
-    refresh();
-  } catch (e) {
-    setRemoteStatus((zh ? '获取失败：' : 'Fetch failed: ') + e, true);
-  } finally {
-    remoteBusy = false;
-    updateRemoteControls();
+async function sendEntry(entry) {
+  if (remoteBusy) return;
+  const peer = currentPeer();
+  if (!peer) {
+    const missing = devicePreferences.resolve(remotePeers.map(item => item.node_id)).missing;
+    setRemoteStatus(missing
+      ? (zh ? '之前选择的电脑未发现，请重新选择。' : 'The previously selected computer is unavailable. Choose another.')
+      : (zh ? '请选择目标电脑。' : 'Choose a target computer.'), true);
+    $('remote-capture').scrollIntoView({ block: 'center', behavior: 'smooth' });
+    $('device-cards').querySelector('button')?.focus();
+    return;
   }
+  devicePreferences.markUsed(peer.node_id);
+  remoteBusy = true; updateRemoteControls();
+  setRemoteStatus(zh ? '正在发送…' : 'Sending…');
+  try {
+    const body = { operation: 'send', node_id: peer.node_id, expires_in_secs: 86400 };
+    if (entry?.id) body.entry_id = entry.id;
+    const response = await fetch('/v1/transfers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!response.ok) throw new Error(await response.text());
+    await response.json();
+    const message = sentMessage(peer);
+    setRemoteStatus(message, false, true); show(message, 'ok');
+    refresh();
+  } catch (_) {
+    setRemoteStatus(zh ? '发送失败，请重试。' : 'Could not send. Try again.', true);
+  } finally { finishRemoteBusy(); }
+}
+remotePeer.onchange = () => { if (!remoteBusy) { devicePreferences.select(remotePeer.value); setRemoteStatus(''); restoreTarget(); } };
+remoteFavorite.onclick = () => { const peer = currentPeer(); if (!peer || remoteBusy) return; devicePreferences.toggleFavorite(peer.node_id); renderDeviceCards(); };
+remoteRefresh.onclick = () => loadPeers();
+remoteSend.onclick = () => sendEntry(null);
+remoteFetch.onclick = async () => {
+  const peer = currentPeer();
+  if (remoteBusy || !peer || peer.online === false) return;
+  devicePreferences.markUsed(peer.node_id);
+  remoteBusy = true; updateRemoteControls();
+  setRemoteStatus(zh ? '正在获取…' : 'Fetching…');
+  try {
+    const response = await fetch('/v1/actions/fetch-clipboard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ node_id: peer.node_id }) });
+    if (!response.ok) throw new Error(response.status === 403
+      ? (zh ? '请先在对方电脑的设置中允许获取剪贴板。' : 'Allow clipboard access in the other computer’s settings first.')
+      : (zh ? '获取失败，请重试。' : 'Could not fetch. Try again.'));
+    await response.json();
+    q.value = ''; const refreshed = await refresh();
+    setRemoteStatus(refreshed === false
+      ? (zh ? '已获取到本机历史，但列表刷新失败，请重试搜索。' : 'Added to local history, but the list could not refresh. Search again.')
+      : (zh ? '已加入本机历史，剪贴板未更改；需要时点击复制。' : 'Added to local history; clipboard unchanged. Click Copy when needed.'), refreshed === false);
+  } catch (error) { setRemoteStatus(error.message, true); }
+  finally { finishRemoteBusy(); }
 };
+window.addEventListener?.('storage', event => {
+  if (event.key && event.key !== devicePreferences.key) return;
+  if (remoteBusy) { remotePreferencesDirty = true; return; }
+  restoreTarget();
+});
+/* ------------------------------------------------------------ native files */
 
 const nativeFiles = !!(window.ipc && window.ipc.postMessage);
-$('file-title').textContent = zh ? '拖入文件或文件夹，加入共享列表' : 'Drop files or folders to share';
+$('file-title').textContent = zh ? '拖入文件，或选择文件' : 'Drop files here, or choose a file';
 $('file-help').textContent = nativeFiles
-  ? (zh ? '可拖入此窗口，或点击下方选择。其他电脑按需下载；不改变剪贴板。请保留源文件直到下载完成。' : 'Drop into this window or select below. Peers download on demand; your clipboard stays unchanged. Keep source files until downloads finish.')
-  : (zh ? '请从托盘打开应用窗口以选择或拖入文件。浏览器不提供本机文件路径。' : 'Open the app window from the tray to select or drop files. Browser pages cannot provide local file paths.');
+  ? (zh ? '加入共享列表，其他电脑随时取用。' : 'Add to shared content for your other computers.')
+  : (zh ? '从托盘打开应用窗口，即可拖入文件。' : 'Open the app from the tray to add files.');
 $('pick-files').textContent = zh ? '选择文件' : 'Select files';
 $('pick-folder').textContent = zh ? '选择文件夹' : 'Select folder';
 for (const action of ['pick-files', 'pick-folder']) {
@@ -821,9 +1554,9 @@ document.addEventListener('drop', e => {
   if (!nativeFiles) show(zh ? '请在应用窗口中拖入文件' : 'Drop files in the app window', 'err');
 });
 q.placeholder = T.placeholder;
-showTab('timeline');
-loadPeers();
-refresh();
+q.setAttribute('aria-label', T.placeholder);
+showTab('notes');
 </script>
+<script src="/assets/transfer-center.js"></script>
 </body>
 </html>

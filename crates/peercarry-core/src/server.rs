@@ -3,11 +3,15 @@
 //! The daemon binds to its Tailscale address by default, so the service is
 //! reachable from the tailnet but never from the local LAN or the internet.
 
-use std::future::IntoFuture;
+use std::ffi::OsString;
+use std::future::{Future, IntoFuture};
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::task::{Context, Poll};
 
 use axum::body::{Body, Bytes};
@@ -80,7 +84,7 @@ pub fn os_label() -> &'static str {
     }
 }
 
-/// Pick the bind address: explicit config, then the Tailscale IP, then any.
+/// Pick the bind address: explicit config, then Tailscale, then loopback.
 pub async fn bind_addr(config: &Config) -> SocketAddr {
     if let Some(bind) = &config.network.bind {
         if let Ok(addr) = bind.parse::<SocketAddr>() {
@@ -102,10 +106,10 @@ pub async fn bind_addr(config: &Config) -> SocketAddr {
         Err(e) => tracing::warn!("tailscale lookup failed: {e}"),
     }
 
-    tracing::warn!(
-        "falling back to 0.0.0.0 - the service will also be reachable outside the tailnet"
+    tracing::info!(
+        "no Tailscale address; using loopback (mobile pairing uses its own TLS service)"
     );
-    SocketAddr::from(([0, 0, 0, 0], config.network.port))
+    SocketAddr::from(([127, 0, 0, 1], config.network.port))
 }
 
 /// Identity this node stamps onto the entries it captures.
@@ -121,6 +125,11 @@ pub async fn build_origin(config: &Config, bind: SocketAddr) -> Origin {
 
 /// Reject requests that do not carry the configured shared secret.
 async fn auth_middleware(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    // The desktop UI runs as the local OS user. Grant only its explicit routes
+    // a same-origin loopback path; never embed the peer token in HTML/storage.
+    if trusted_desktop_request(&request) {
+        return next.run(request).await;
+    }
     let Some(expected) = state.config.network.auth_token.as_deref() else {
         return next.run(request).await;
     };
@@ -148,7 +157,82 @@ async fn auth_middleware(State(state): State<AppState>, request: Request, next: 
     }
 }
 
-async fn hello(State(state): State<AppState>) -> impl IntoResponse {
+pub(crate) fn trusted_desktop_request(request: &Request) -> bool {
+    let path = request.uri().path();
+    let notebook_path = path == "/v1/notebook" || path.starts_with("/v1/notebook/");
+    let desktop_path = matches!(
+        path,
+        "/" | "/quick"
+            | "/assets/ui-locale.js"
+            | "/assets/transfer-center.js"
+            | "/assets/notebook.js"
+            | "/assets/notebook.css"
+            | "/v1/timeline"
+            | "/v1/peers"
+            | "/v1/actions/apply"
+            | "/v1/actions/pin"
+            | "/v1/actions/fetch-clipboard"
+            | "/v1/desktop/settings"
+            | "/v1/desktop/settings/restart"
+            | "/v1/ai/overview"
+            | "/v1/ai/receiver"
+            | "/v1/ai/tools"
+            | "/v1/ai/bind"
+    ) || notebook_path
+        || path == "/v1/transfers"
+        || path.starts_with("/v1/transfers/");
+    if !desktop_path || !is_loopback_request(request) {
+        return false;
+    }
+    let Some(host) = request
+        .headers()
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+    else {
+        return false;
+    };
+    let local_host = host.parse::<axum::http::uri::Authority>().is_ok_and(|a| {
+        a.host() == "localhost"
+            || a.host()
+                .trim_matches(['[', ']'])
+                .parse::<IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback())
+    });
+    let same_origin = request
+        .headers()
+        .get(header::ORIGIN)
+        .is_none_or(|o| o.to_str().ok() == Some(format!("http://{host}").as_str()));
+    let same_site = request
+        .headers()
+        .get("sec-fetch-site")
+        .is_none_or(|s| s == "same-origin" || s == "none");
+    // A user may follow the saved loopback homepage link after changing its
+    // port or bind address. Permit only activated, top-level GET navigation
+    // to static HTML here; every API and embedded frame keeps its own gate.
+    let activated_home_navigation = path == "/"
+        && request.method() == axum::http::Method::GET
+        && request.headers().get_all(header::HOST).iter().count() == 1
+        && !request.headers().contains_key(header::ORIGIN)
+        && request
+            .headers()
+            .get("sec-fetch-mode")
+            .is_some_and(|v| v == "navigate")
+        && request
+            .headers()
+            .get("sec-fetch-dest")
+            .is_some_and(|v| v == "document")
+        && request
+            .headers()
+            .get("sec-fetch-user")
+            .is_some_and(|v| v == "?1")
+        && request
+            .headers()
+            .get("sec-fetch-site")
+            .is_some_and(|v| v == "same-site" || v == "cross-site");
+    local_host && same_origin && (same_site || activated_home_navigation)
+}
+
+pub(crate) async fn hello(State(state): State<AppState>) -> impl IntoResponse {
     Json(protocol::HelloResponse {
         protocol: protocol::PROTOCOL_VERSION,
         host: state.origin.host.clone(),
@@ -200,6 +284,34 @@ async fn timeline_ui() -> Html<&'static str> {
     Html(include_str!("../timeline.html"))
 }
 
+async fn quick_ui() -> Html<&'static str> {
+    Html(include_str!("../quick.html"))
+}
+
+async fn locale_ui_script() -> impl IntoResponse {
+    (
+        [(
+            header::CONTENT_TYPE,
+            "application/javascript; charset=utf-8",
+        )],
+        concat!(
+            include_str!("../ui-locale.js"),
+            "\n",
+            include_str!("../device-preferences.js")
+        ),
+    )
+}
+
+async fn transfer_ui_script() -> impl IntoResponse {
+    (
+        [(
+            header::CONTENT_TYPE,
+            "application/javascript; charset=utf-8",
+        )],
+        include_str!("../transfer-center.js"),
+    )
+}
+
 /// Current configuration for the settings page. Loopback only: the file on
 /// disk is readable by the local user anyway, `auth_token` included.
 async fn get_config(State(state): State<AppState>) -> impl IntoResponse {
@@ -239,7 +351,7 @@ fn normalize_config(config: &mut Config) {
     }
 }
 
-fn validate_config(config: &Config) -> std::result::Result<(), String> {
+pub(crate) fn validate_config(config: &Config) -> std::result::Result<(), String> {
     if config
         .ai_token
         .as_deref()
@@ -303,9 +415,9 @@ async fn put_config(State(state): State<AppState>, Json(mut config): Json<Config
 }
 
 /// `POST /v1/actions/restart` - hand the service over to a fresh process so
-/// startup-time config takes effect. The new process waits for the port
-/// (`PEERCARRY_RESTART`), so the old one simply exits.
-async fn action_restart() -> Response {
+/// startup-time config takes effect. Preserve the launch mode and identify
+/// this process so the successor waits for all of its handles to close.
+pub(crate) async fn action_restart() -> Response {
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
         Err(e) => {
@@ -316,14 +428,28 @@ async fn action_restart() -> Response {
                 .into_response()
         }
     };
-    let mut cmd = std::process::Command::new(exe);
-    cmd.env("PEERCARRY_RESTART", "1");
-    #[cfg(windows)]
+    let Some(parent) = RestartParent::current() else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "cannot identify restart parent",
+        )
+            .into_response();
+    };
+    static PENDING: AtomicBool = AtomicBool::new(false);
+    if PENDING
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
     {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
+        return (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({
+                "error":"restart_pending", "message":"Restart already requested."
+            })),
+        )
+            .into_response();
     }
+    let arguments: Vec<_> = std::env::args_os().skip(1).collect();
+    let mut cmd = restart_command(&exe, &arguments, parent);
     match cmd.spawn() {
         Ok(_) => {
             // Give the response time to reach the browser before the
@@ -334,12 +460,73 @@ async fn action_restart() -> Response {
             });
             Json(protocol::RestartResponse { ok: true }).into_response()
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("spawn failed: {e}"),
-        )
-            .into_response(),
+        Err(e) => {
+            PENDING.store(false, Ordering::Release);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("spawn failed: {e}"),
+            )
+                .into_response()
+        }
     }
+}
+
+const RESTART_PARENT_PID: &str = "PEERCARRY_RESTART_PARENT_PID";
+const RESTART_PARENT_START: &str = "PEERCARRY_RESTART_PARENT_START";
+
+#[derive(Clone, Copy)]
+struct RestartParent {
+    pid: u32,
+    started_at: u64,
+}
+
+impl RestartParent {
+    fn current() -> Option<Self> {
+        let pid = std::process::id();
+        let mut system = sysinfo::System::new();
+        let process_id = sysinfo::Pid::from_u32(pid);
+        system.refresh_processes_specifics(
+            sysinfo::ProcessesToUpdate::Some(&[process_id]),
+            true,
+            sysinfo::ProcessRefreshKind::nothing(),
+        );
+        let started_at = system.process(process_id)?.start_time();
+        (started_at > 0).then_some(Self { pid, started_at })
+    }
+
+    fn parse(pid: Option<&str>, started_at: Option<&str>) -> Result<Option<Self>> {
+        match (pid, started_at) {
+            (None, None) => Ok(None),
+            (Some(pid), Some(started_at)) => {
+                let pid = pid.parse::<u32>().ok().filter(|value| *value > 0);
+                let started_at = started_at.parse::<u64>().ok().filter(|value| *value > 0);
+                match (pid, started_at) {
+                    (Some(pid), Some(started_at)) => Ok(Some(Self { pid, started_at })),
+                    _ => Err(Error::Network("invalid restart handoff".into())),
+                }
+            }
+            _ => Err(Error::Network("incomplete restart handoff".into())),
+        }
+    }
+}
+
+fn restart_command(
+    executable: &Path,
+    arguments: &[OsString],
+    parent: RestartParent,
+) -> std::process::Command {
+    let mut command = std::process::Command::new(executable);
+    command
+        .args(arguments)
+        .env("PEERCARRY_RESTART", "1")
+        .env(RESTART_PARENT_PID, parent.pid.to_string())
+        .env(RESTART_PARENT_START, parent.started_at.to_string());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    command
 }
 
 /// Aggregated, optionally filtered history - the searchable timeline behind
@@ -372,7 +559,7 @@ async fn timeline(
     }
 }
 
-async fn push_entry(
+pub(crate) async fn push_entry(
     State(state): State<AppState>,
     Json(mut entry): Json<Entry>,
 ) -> impl IntoResponse {
@@ -1103,6 +1290,67 @@ pub fn wait_for_local_port(port: u16, timeout: std::time::Duration) {
     }
 }
 
+/// Wait before opening redb in a replacement process. A saved configuration
+/// may change the listen address, so the previous process identity, rather
+/// than the new port, is authoritative. Legacy launches without a parent
+/// identity retain a bounded port-based fallback.
+pub fn wait_for_restart_handoff(port: u16, timeout: std::time::Duration) -> Result<()> {
+    let pid = std::env::var(RESTART_PARENT_PID);
+    let started_at = std::env::var(RESTART_PARENT_START);
+    // Consume launch-only context; later tool/update subprocesses must not
+    // inherit the identity of an earlier restart generation.
+    std::env::remove_var(RESTART_PARENT_PID);
+    std::env::remove_var(RESTART_PARENT_START);
+    std::env::remove_var("PEERCARRY_RESTART");
+    let optional = |value: std::result::Result<String, std::env::VarError>| match value {
+        Ok(value) => Ok(Some(value)),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(_) => Err(Error::Network("invalid restart handoff".into())),
+    };
+    let pid = optional(pid)?;
+    let started_at = optional(started_at)?;
+    let parent = RestartParent::parse(pid.as_deref(), started_at.as_deref())?;
+    let deadline = std::time::Instant::now() + timeout;
+    if let Some(parent) = parent {
+        if parent.pid == std::process::id() {
+            return Err(Error::Network(
+                "restart parent cannot be this process".into(),
+            ));
+        }
+        let mut system = sysinfo::System::new();
+        let process_id = sysinfo::Pid::from_u32(parent.pid);
+        loop {
+            system.refresh_processes_specifics(
+                sysinfo::ProcessesToUpdate::Some(&[process_id]),
+                true,
+                sysinfo::ProcessRefreshKind::nothing(),
+            );
+            let still_alive = system.process(process_id).is_some_and(|process| {
+                (process.start_time() == parent.started_at || process.start_time() == 0)
+                    && process.status() != sysinfo::ProcessStatus::Zombie
+            });
+            if !still_alive {
+                return Ok(());
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(Error::Network(
+                    "previous process did not exit before restart deadline".into(),
+                ));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+    while std::net::TcpListener::bind(("127.0.0.1", port)).is_err() {
+        if std::time::Instant::now() >= deadline {
+            return Err(Error::Network(
+                "previous listener did not close before restart deadline".into(),
+            ));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    Ok(())
+}
+
 pub fn router(state: AppState) -> Router {
     // Routes reachable from the tailnet.
     let shared = Router::new()
@@ -1139,6 +1387,12 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/actions/fetch-clipboard", post(action_fetch_clipboard))
         .layer(middleware::from_fn(strict_local));
 
+    let desktop_tools = Router::new()
+        .route("/quick", get(quick_ui))
+        .route("/assets/ui-locale.js", get(locale_ui_script))
+        .route("/assets/transfer-center.js", get(transfer_ui_script))
+        .layer(middleware::from_fn(crate::ai_monitor::local_gate));
+
     // Launching a program gets its own gate: loopback always, the tailnet
     // only after `node.allow_remote_launch`.
     let launch_routes = Router::new()
@@ -1160,9 +1414,16 @@ pub fn router(state: AppState) -> Router {
         .merge(shared)
         .merge(crate::ai_tasks::router())
         .merge(crate::uploads::router(state.clone()))
+        .merge(crate::transfer_jobs::router(state.clone()))
+        .merge(crate::mobile_connect::local_router(state.clone()))
+        .merge(crate::notebook::router())
+        .merge(crate::notebook_sync::local_router())
+        .merge(crate::notebook_sync::network_router(state.clone()))
+        .merge(crate::desktop_settings::router(&state))
         .merge(actions)
         .merge(capture)
         .merge(fetch)
+        .merge(desktop_tools)
         .merge(ai_local)
         .merge(launch_routes)
         .merge(timeline)
@@ -1172,9 +1433,10 @@ pub fn router(state: AppState) -> Router {
         ))
         .with_state(state)
         .layer(middleware::from_fn(track_activity))
+        .layer(middleware::from_fn(crate::desktop_settings::outer_gate))
 }
 
-async fn track_activity(request: Request, next: Next) -> Response {
+pub(crate) async fn track_activity(request: Request, next: Next) -> Response {
     use futures_util::StreamExt;
     let Some(activity) = crate::maintenance::enter() else {
         return (StatusCode::SERVICE_UNAVAILABLE, "update in progress").into_response();
@@ -1211,18 +1473,19 @@ pub async fn serve(config: Arc<Config>, store: Arc<Store>) -> Result<()> {
         origin,
         engine,
     };
+    let sync_store = state.store.clone();
     let app = router(state);
 
     let listener = TcpListener::bind(bind).await?;
     // ConnectInfo lets the local-only middleware inspect the peer address.
-    let tailnet = tokio::spawn(
+    let mut tailnet = AbortOnDrop::new(tokio::spawn(
         axum::serve(
             listener,
             app.clone()
                 .into_make_service_with_connect_info::<SocketAddr>(),
         )
         .into_future(),
-    );
+    ));
 
     // The advertised address is the Tailscale IP, which loopback clients
     // cannot reach. Listen on 127.0.0.1 as well so the local CLI and tray app
@@ -1234,13 +1497,13 @@ pub async fn serve(config: Arc<Config>, store: Arc<Store>) -> Result<()> {
         match TcpListener::bind(addr).await {
             Ok(listener) => {
                 tracing::info!("also listening on {addr} for local clients");
-                Some(tokio::spawn(
+                Some(AbortOnDrop::new(tokio::spawn(
                     axum::serve(
                         listener,
                         app.into_make_service_with_connect_info::<SocketAddr>(),
                     )
                     .into_future(),
-                ))
+                )))
             }
             Err(e) => {
                 tracing::warn!("cannot bind {addr} for local clients: {e}");
@@ -1249,17 +1512,68 @@ pub async fn serve(config: Arc<Config>, store: Arc<Store>) -> Result<()> {
         }
     };
 
-    let outcome = match local {
-        Some(handle) => tokio::select! {
-            result = tailnet => result,
-            result = handle => result,
+    let outcome = with_worker(
+        crate::notebook_sync::run_worker(config.clone(), sync_store),
+        async move {
+            match local {
+                Some(mut handle) => tokio::select! {
+                    result = tailnet.handle_mut() => result,
+                    result = handle.handle_mut() => result,
+                },
+                None => tailnet.handle_mut().await,
+            }
         },
-        None => tailnet.await,
-    };
+    )
+    .await;
 
     outcome
         .map_err(|e| Error::Network(format!("server task panicked: {e}")))?
         .map_err(|e| Error::Network(format!("server error: {e}")))
+}
+
+struct AbortOnDrop<T> {
+    handle: Option<tokio::task::JoinHandle<T>>,
+}
+
+impl<T> AbortOnDrop<T> {
+    fn new(handle: tokio::task::JoinHandle<T>) -> Self {
+        Self {
+            handle: Some(handle),
+        }
+    }
+
+    async fn abort_and_join(&mut self) {
+        if let Some(handle) = self.handle.as_mut() {
+            handle.abort();
+            let _ = handle.await;
+        }
+        self.handle.take();
+    }
+
+    fn handle_mut(&mut self) -> &mut tokio::task::JoinHandle<T> {
+        self.handle
+            .as_mut()
+            .expect("task handle stays owned until the guard is dropped")
+    }
+}
+
+impl<T> Drop for AbortOnDrop<T> {
+    fn drop(&mut self) {
+        if let Some(handle) = &self.handle {
+            handle.abort();
+        }
+    }
+}
+
+async fn with_worker<W, S, O>(worker: W, server: S) -> O
+where
+    W: Future<Output = ()> + Send + 'static,
+    S: Future<Output = O>,
+{
+    let mut owner = AbortOnDrop::new(tokio::spawn(worker));
+    let output = server.await;
+    owner.abort_and_join().await;
+    output
 }
 
 /// Helper used by tests and the CLI to build headers carrying the token.
@@ -1280,6 +1594,156 @@ pub type PayloadChunk = Bytes;
 
 #[cfg(test)]
 mod tests {
+    use crate::store::Store;
+    use std::sync::Arc;
+
+    #[test]
+    fn cross_origin_local_navigation_only_admits_an_activated_home_document() {
+        use super::*;
+        for (path, method, dest, user, peer, origin, expected) in [
+            ("/", "GET", "document", "?1", "127.0.0.1:1234", None, true),
+            (
+                "/v1/desktop/settings",
+                "GET",
+                "document",
+                "?1",
+                "127.0.0.1:1234",
+                None,
+                false,
+            ),
+            (
+                "/v1/config",
+                "GET",
+                "document",
+                "?1",
+                "127.0.0.1:1234",
+                None,
+                false,
+            ),
+            ("/", "POST", "document", "?1", "127.0.0.1:1234", None, false),
+            ("/", "GET", "iframe", "?1", "127.0.0.1:1234", None, false),
+            ("/", "GET", "document", "", "127.0.0.1:1234", None, false),
+            ("/", "GET", "document", "?1", "100.64.0.8:1234", None, false),
+            (
+                "/",
+                "GET",
+                "document",
+                "?1",
+                "127.0.0.1:1234",
+                Some("http://other.example"),
+                false,
+            ),
+        ] {
+            for site in ["same-site", "cross-site"] {
+                let mut request = Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .header(header::HOST, "127.0.0.1:5199")
+                    .header("sec-fetch-site", site)
+                    .header("sec-fetch-mode", "navigate")
+                    .header("sec-fetch-dest", dest)
+                    .header("sec-fetch-user", user)
+                    .body(Body::empty())
+                    .unwrap();
+                request
+                    .extensions_mut()
+                    .insert(ConnectInfo(peer.parse::<SocketAddr>().unwrap()));
+                if let Some(origin) = origin {
+                    request
+                        .headers_mut()
+                        .insert(header::ORIGIN, origin.parse().unwrap());
+                }
+                assert_eq!(
+                    trusted_desktop_request(&request),
+                    expected,
+                    "{site} {method} {path}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn restart_command_preserves_launch_mode_and_parent_identity() {
+        use super::*;
+        for arguments in [
+            vec![
+                OsString::from("--json"),
+                OsString::from("-vv"),
+                OsString::from("serve"),
+            ],
+            Vec::new(),
+        ] {
+            let parent = RestartParent {
+                pid: 123,
+                started_at: 456,
+            };
+            let command =
+                restart_command(Path::new("synthetic application path"), &arguments, parent);
+            assert_eq!(
+                command.get_args().map(OsString::from).collect::<Vec<_>>(),
+                arguments
+            );
+            let env: std::collections::BTreeMap<_, _> = command
+                .get_envs()
+                .map(|(key, value)| (key.to_os_string(), value.map(std::ffi::OsStr::to_os_string)))
+                .collect();
+            assert_eq!(
+                env[std::ffi::OsStr::new("PEERCARRY_RESTART")],
+                Some(OsString::from("1"))
+            );
+            assert_eq!(
+                env[std::ffi::OsStr::new(RESTART_PARENT_PID)],
+                Some(OsString::from("123"))
+            );
+            assert_eq!(
+                env[std::ffi::OsStr::new(RESTART_PARENT_START)],
+                Some(OsString::from("456"))
+            );
+        }
+    }
+
+    #[test]
+    fn restart_parent_requires_a_complete_nonzero_identity() {
+        use super::*;
+        assert!(RestartParent::parse(None, None).unwrap().is_none());
+        for (pid, start) in [
+            (Some("123"), None),
+            (None, Some("456")),
+            (Some("0"), Some("456")),
+            (Some("123"), Some("0")),
+            (Some("invalid"), Some("456")),
+        ] {
+            assert!(RestartParent::parse(pid, start).is_err());
+        }
+        let parent = RestartParent::parse(Some("123"), Some("456"))
+            .unwrap()
+            .unwrap();
+        assert_eq!((parent.pid, parent.started_at), (123, 456));
+    }
+
+    #[tokio::test]
+    async fn locale_asset_includes_shared_device_preferences() {
+        use super::*;
+
+        let response = locale_ui_script().await.into_response();
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "application/javascript; charset=utf-8"
+        );
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(
+            body.as_ref(),
+            concat!(
+                include_str!("../ui-locale.js"),
+                "\n",
+                include_str!("../device-preferences.js")
+            )
+            .as_bytes()
+        );
+    }
+
     #[tokio::test]
     async fn remote_capture_permission_is_independent_and_fetch_stays_local() {
         use super::*;
@@ -1456,5 +1920,84 @@ mod tests {
         assert_eq!(&body[..], contents);
 
         std::fs::remove_file(path).unwrap();
+    }
+
+    struct NotifyDrop(Option<tokio::sync::oneshot::Sender<()>>);
+
+    impl Drop for NotifyDrop {
+        fn drop(&mut self) {
+            if let Some(sender) = self.0.take() {
+                let _ = sender.send(());
+            }
+        }
+    }
+
+    fn worker_store() -> (Arc<Store>, std::path::PathBuf) {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/session-server-worker")
+            .join(uuid::Uuid::new_v4().to_string());
+        std::fs::create_dir_all(&root).unwrap();
+        let store = Arc::new(Store::open_isolated_for_tests(&root.join("state.redb")).unwrap());
+        (store, root)
+    }
+
+    #[tokio::test]
+    async fn completed_server_aborts_and_joins_its_worker() {
+        use super::*;
+        use std::future::pending;
+
+        let (store, root) = worker_store();
+        let weak_store = Arc::downgrade(&store);
+        let worker_store = store.clone();
+        drop(store);
+        let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
+        let drop_signal = NotifyDrop(Some(dropped_tx));
+        let worker = async move {
+            let _drop_signal = drop_signal;
+            let _store = worker_store;
+            pending::<()>().await;
+        };
+
+        assert_eq!(with_worker(worker, async { 42 }).await, 42);
+        tokio::time::timeout(std::time::Duration::from_secs(1), dropped_rx)
+            .await
+            .expect("worker was not dropped")
+            .expect("drop signal was lost");
+        assert!(weak_store.upgrade().is_none(), "worker retained its Store");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancelling_server_future_aborts_its_worker_and_releases_store() {
+        use super::*;
+        use std::future::pending;
+
+        let (store, root) = worker_store();
+        let weak_store = Arc::downgrade(&store);
+        let worker_store = store.clone();
+        drop(store);
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
+        let drop_signal = NotifyDrop(Some(dropped_tx));
+        let worker = async move {
+            let _drop_signal = drop_signal;
+            let _store = worker_store;
+            let _ = started_tx.send(());
+            pending::<()>().await;
+        };
+
+        let server = tokio::spawn(with_worker(worker, pending::<()>()));
+        tokio::time::timeout(std::time::Duration::from_secs(1), started_rx)
+            .await
+            .expect("worker did not start")
+            .expect("worker start signal was lost");
+        server.abort();
+        assert!(server.await.unwrap_err().is_cancelled());
+        tokio::time::timeout(std::time::Duration::from_secs(1), dropped_rx)
+            .await
+            .expect("worker was not aborted after server cancellation")
+            .expect("drop signal was lost");
+        assert!(weak_store.upgrade().is_none(), "worker retained its Store");
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

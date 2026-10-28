@@ -1,0 +1,140 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PeerCarry</title>
+<style>
+:root{font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;color-scheme:light;--bg:#f5f6f2;--paper:#fff;--ink:#20372e;--muted:#687a70;--accent:#176b5b;--sage:#e9f1ec;--line:#dfe5df}*{box-sizing:border-box}html,body{width:100%;min-width:0;min-height:100%;margin:0}body{padding:16px;background:var(--bg);color:var(--ink)}main{width:min(100%,440px);margin:0 auto}.top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:13px}.brand{margin:0;font-size:16px;font-weight:700}.subtitle{margin:2px 0 0;color:var(--muted);font-size:12px}.esc{flex:none;padding:3px 0;color:var(--muted);font-size:11px}.card{min-width:0;padding:13px;background:var(--paper);border:1px solid var(--line);border-radius:14px;box-shadow:0 5px 18px #20372e0a}.eyebrow{display:block;margin:0 0 6px;color:var(--muted);font-size:11px;font-weight:650;letter-spacing:.04em}.row{display:flex;min-width:0;gap:8px;margin:8px 0}.picker{margin-bottom:10px}select,input,button{min-width:0;font:inherit;color:var(--ink);border:1px solid var(--line);border-radius:9px;background:var(--paper)}select,input{width:100%;padding:9px 10px}select{flex:1;text-overflow:ellipsis}button{min-height:40px;padding:8px 11px;cursor:pointer}.favorite{flex:0 0 42px;padding:6px;color:var(--accent);font-size:17px}.actions{display:grid;grid-template-columns:minmax(0,1fr);gap:7px;margin-top:10px}.actions button{width:100%;font-weight:650}.primary{background:var(--accent);color:#fff;border-color:var(--accent)}button:hover:not(:disabled){border-color:#b6c9bd;background:var(--sage)}button.primary:hover:not(:disabled){background:#125849;border-color:#125849}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #4b9e8855;outline-offset:2px}button:disabled{opacity:.48;cursor:default}.offline-note{margin:8px 1px 0;color:var(--muted);font-size:11px}.history{margin-top:11px}.history-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px}.history-title{margin:0;font-size:13px;font-weight:700}.search-row{margin:0 0 5px}.search-row input{flex:1}.search-row button{flex:none}.results{max-height:min(31vh,190px);overflow:auto;overscroll-behavior:contain}.entry{min-width:0;padding:8px 1px;border-top:1px solid var(--line)}.entry .preview{overflow:hidden;margin-bottom:5px;text-overflow:ellipsis;white-space:nowrap;font-size:12px}.entry .meta{display:flex;align-items:center;gap:7px;min-width:0}.entry .source{flex:1;min-width:0;overflow:hidden;color:var(--muted);font-size:10px;text-overflow:ellipsis;white-space:nowrap}.entry button{min-height:32px;padding:5px 9px;color:var(--accent);font-size:11px}.empty{padding:12px 2px;color:var(--muted);font-size:12px}#status{min-height:18px;margin:8px 2px 0;color:var(--accent);font-size:11px;overflow-wrap:anywhere}#status:empty{min-height:0;margin:0}@media(max-height:460px){body{padding:11px}.top{margin-bottom:9px}.card{padding:10px}.history{margin-top:8px}.results{max-height:90px}}@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}}
+
+.offline-note:empty{display:none}
+</style></head>
+<body>
+<main>
+<header class="top"><div><h1 id="title" class="brand">PeerCarry</h1><p id="panel-subtitle" class="subtitle">Quick panel</p></div><span id="esc-hint" class="esc">Esc to close</span></header>
+<section class="card picker" aria-labelledby="device-label"><label id="device-label" class="eyebrow" for="device">Send to</label>
+<div class="row"><select id="device" aria-label="Choose a device"></select><button id="favorite" class="favorite" type="button" title="Favorite target" aria-label="Favorite target">☆</button></div>
+<p id="device-notice" class="offline-note" role="status" aria-live="polite"></p>
+<div class="actions"><button id="send" class="primary" type="button"></button><button id="fetch" type="button"></button></div><p id="offline-note" class="offline-note">Offline sends wait until the device is available.</p></section>
+<section class="card history" aria-labelledby="history-title"><div class="history-head"><h2 id="history-title" class="history-title">Recent content</h2></div><div class="row search-row"><input id="query" type="search" autocomplete="off"><button id="search" type="button"></button></div><div id="results" class="results" aria-live="polite"></div></section>
+<div id="status" role="status" aria-live="polite"></div>
+</main>
+<script src="/assets/ui-locale.js?v=device-preferences-1"></script>
+<script>
+(() => {
+  const locale = window.PeerCarryLocale;
+  const zh = locale.isChinese;
+  const t = zh ? {
+    title:'PeerCarry', subtitle:'快捷面板', esc:'按 Esc 关闭', device:'发送到', deviceHint:'选择要发送到的设备',
+    send:'发送当前剪贴板', fetch:'获取对方剪贴板', query:'搜索历史内容…', queryLabel:'搜索历史内容', search:'搜索', copy:'复制',
+    favorite:'收藏此设备', unfavorite:'取消收藏此设备', recent:'最近内容', offline:'设备离线时，发送会排队等待上线。',
+    empty:'没有匹配的历史内容', busy:'正在处理…', fetched:'已加入本机历史，剪贴板未更改；需要时点击复制。',
+    refreshFailed:'已获取到本机历史，但列表刷新失败，请重试搜索。', copied:'已复制到剪贴板',
+    sendFailed:'发送失败，请重试。', fetchFailed:'获取失败，请重试。', fetchDenied:'请先在对方电脑的设置中允许获取剪贴板。',
+    copyFailed:'复制失败，请重试。', error:'操作失败：', none:'暂无可用设备', choose:'请选择目标电脑',
+    missing:'之前选择的电脑未发现，请重新选择。', offlineDevice:'离线，可排队'
+  } : {
+    title:'PeerCarry', subtitle:'Quick panel', esc:'Esc to close', device:'Send to', deviceHint:'Choose a device',
+    send:'Send current clipboard', fetch:'Fetch clipboard', query:'Search recent content…', queryLabel:'Search recent content', search:'Search', copy:'Copy',
+    favorite:'Favorite this device', unfavorite:'Remove this favorite', recent:'Recent content', offline:'Offline sends wait until the device is available.',
+    empty:'No matching history', busy:'Working…', fetched:'Added to local history; clipboard unchanged. Click Copy when needed.',
+    refreshFailed:'Added to local history, but the list could not refresh. Search again.', copied:'Copied to clipboard',
+    sendFailed:'Could not send. Try again.', fetchFailed:'Could not fetch. Try again.', fetchDenied:'Allow clipboard access in the other computer’s settings first.',
+    copyFailed:'Could not copy. Try again.', error:'Action failed: ', none:'No devices available', choose:'Choose a target computer',
+    missing:'The previously selected computer is unavailable. Choose another.', offlineDevice:'offline, can queue'
+  };
+  const $ = id => document.getElementById(id), preferences = window.PeerCarryDevicePreferences;
+  const state={peers:[],selected:'',entries:[],busy:false,copyBusy:false,searchSequence:0,refreshPending:false,preferencesDirty:false};
+  document.title = 'PeerCarry · ' + t.subtitle;
+  $('title').textContent=t.title; $('panel-subtitle').textContent=t.subtitle; $('esc-hint').textContent=t.esc; $('device-label').textContent=t.device; $('device').setAttribute('aria-label',t.deviceHint); $('device').title=t.deviceHint; $('send').textContent=t.send; $('fetch').textContent=t.fetch; $('query').placeholder=t.query; $('query').setAttribute('aria-label',t.queryLabel); $('query').title=t.queryLabel; $('search').textContent=t.search; $('search').title=t.search; $('search').setAttribute('aria-label',t.search); $('favorite').title=t.favorite; $('favorite').setAttribute('aria-label',t.favorite); $('offline-note').textContent=t.offline; $('history-title').textContent=t.recent;
+  function status(s,error=false){$('status').textContent=s;$('status').style.color=error?'#d44':''}
+  async function request(path,options){const r=await fetch(path,{cache:'no-store',...options});if(!r.ok){const error=Error((await r.text())||('HTTP '+r.status));error.status=r.status;throw error}return r.status===204?null:r.json()}
+  function chosen(){return state.selected?state.peers.find(p=>p.node_id===state.selected):undefined}
+  function targetLabel(p){return p.host||p.dns_name||(zh?'未命名电脑':'Unnamed computer')}
+  function sentMessage(p){return p.online===false
+    ? (zh?`已排队，${targetLabel(p)} 上线后发送。`:`Queued for ${targetLabel(p)} when it’s online.`)
+    : (zh?`已加入发送队列 · ${targetLabel(p)}`:`Queued for ${targetLabel(p)}.`)}
+  function renderPeers() {
+    const sel=$('device'),saved=preferences.read();
+    sel.replaceChildren();
+    const available=state.peers.filter(p=>p && preferences.isValidId(p.node_id));
+    const resolved=preferences.resolve(available.map(p=>p.node_id));
+    const placeholder=document.createElement('option'); placeholder.value='';
+    placeholder.textContent=available.length?t.choose:t.none; sel.append(placeholder);
+    const order=[...saved.favorites,...saved.recent];
+    available.sort((a,b)=>{
+      const ai=order.indexOf(a.node_id),bi=order.indexOf(b.node_id);
+      return (ai<0?999:ai)-(bi<0?999:bi)||targetLabel(a).localeCompare(targetLabel(b));
+    });
+    for(const p of available) {
+      const o=document.createElement('option'); o.value=p.node_id;
+      o.textContent=targetLabel(p)+(saved.favorites.includes(p.node_id)?' ★':'')
+        +(p.online===false?' · '+t.offlineDevice:'');
+      sel.append(o);
+    }
+    state.selected=resolved.selected;
+    sel.value=state.selected;
+    const favorite=saved.favorites.includes(state.selected);
+    $('favorite').textContent=favorite?'★':'☆';
+    $('favorite').title=favorite?t.unfavorite:t.favorite;
+    $('favorite').setAttribute('aria-label',favorite?t.unfavorite:t.favorite);
+    $('favorite').setAttribute('aria-pressed',String(favorite));
+    $('device-notice').textContent=resolved.missing?t.missing:'';
+    updateControls();
+  }
+  function updateControls() {
+    const peer=chosen();
+    $('device').disabled=state.busy||!state.peers.length;
+    $('favorite').disabled=state.busy||!peer;
+    $('send').disabled=state.busy||!peer;
+    $('fetch').disabled=state.busy||!peer||peer.online===false;
+  }
+  function finishBusy(){
+    state.busy=false;
+    if(state.preferencesDirty){state.preferencesDirty=false;renderPeers()}
+    updateControls();
+    if(state.refreshPending){state.refreshPending=false;void refresh()}
+  }
+  $('device').onchange=()=>{if(state.busy)return;preferences.select($('device').value);status('');renderPeers()};
+  $('favorite').onclick=()=>{const id=state.selected;if(!id||state.busy)return;preferences.toggleFavorite(id);renderPeers()};
+  $('send').onclick=async()=>{
+    const p=chosen(); if(state.busy)return;if(!p){status(preferences.resolve(state.peers.map(peer=>peer.node_id)).missing?t.missing:t.choose,true);return}
+    preferences.markUsed(p.node_id); state.busy=true; updateControls(); status(t.busy);
+    try {
+      await request('/v1/transfers',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({operation:'send',node_id:p.node_id,expires_in_secs:86400})});
+      status(sentMessage(p));
+    } catch(_) { status(t.sendFailed,true); }
+    finally { finishBusy(); }
+  };
+  $('fetch').onclick=async()=>{
+    const p=chosen(); if(!p||p.online===false||state.busy)return;
+    preferences.markUsed(p.node_id); state.busy=true; updateControls(); status(t.busy);
+    try {
+      await request('/v1/actions/fetch-clipboard',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({node_id:p.node_id})});
+      const refreshed=await search(); status(refreshed===false?t.refreshFailed:t.fetched,refreshed===false);
+    } catch(e) { status(e.status===403?t.fetchDenied:t.fetchFailed,true); }
+    finally { finishBusy(); }
+  };
+  async function search(){
+    const q=$('query').value.trim(), sequence=++state.searchSequence;
+    try {
+      const data=await request('/v1/timeline?limit=50&max=50'+(q?'&q='+encodeURIComponent(q):''));
+      if(sequence!==state.searchSequence)return null;
+      state.entries=Array.isArray(data)?data:(data.entries||[]); renderEntries();
+      return true;
+    } catch(e) { if(sequence===state.searchSequence)status(t.error+e,true);return false; }
+  }
+  function renderEntries(){const box=$('results');box.replaceChildren();if(!state.entries.length){box.textContent=t.empty;box.className='results empty';return}box.className='results';for(const e of state.entries){const row=document.createElement('div');row.className='entry';const preview=document.createElement('div');preview.className='preview';preview.textContent=e.preview||e.kind||'';const meta=document.createElement('div');meta.className='meta';const source=document.createElement('span');source.className='source';source.textContent=(e.origin?.host||'')+' · '+new Date(e.created_at).toLocaleString(locale.locale);const copy=document.createElement('button');copy.textContent=t.copy;copy.title=t.copy;copy.setAttribute('aria-label',t.copy);copy.disabled=state.copyBusy;copy.onclick=async()=>{if(state.copyBusy)return;state.copyBusy=true;copy.disabled=true;status(t.busy);try{const result=await request('/v1/actions/apply',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:e.id})});if(!result?.ok)throw Error('copy failed');status(t.copied)}catch(_){status(t.copyFailed,true)}finally{state.copyBusy=false;renderEntries()}};meta.append(source,copy);row.append(preview,meta);box.append(row)}}
+  $('search').onclick=search;$('query').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();search()}};
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();if(window.ipc?.postMessage)window.ipc.postMessage('quick-close');else window.close()}});
+  window.addEventListener?.('storage',e=>{if(e.key&&e.key!==preferences.key)return;if(state.busy){state.preferencesDirty=true;return}renderPeers()});
+  async function refresh(){
+    if(state.busy){state.refreshPending=true;return}
+    state.busy=true; updateControls();
+    try {const data=await request('/v1/peers');state.peers=Array.isArray(data)?data.filter(p=>p&&preferences.isValidId(p.node_id)):[];renderPeers()}
+    catch(e){state.peers=[];state.selected='';renderPeers();status(t.error+e,true)}
+    finally {finishBusy()}
+    await search();$('query').focus();$('query').select();
+  }
+  window.quickPanelRefresh=refresh; refresh();
+})();
+</script></body></html>
