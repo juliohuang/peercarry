@@ -1,14 +1,20 @@
 # PeerCarry · 随传
 
+**多电脑工作流（当前源码）**：新增全局快捷面板、AI 提醒接收端切换、传输中心和持久化离线发件箱。发送内容在点击时固定；文件继续按需下载，接收不会自动覆盖剪贴板。[操作说明与验证边界](docs/multicomputer-workflow.md)。这些工作区能力需重新构建后使用。
+
+**手机免 Tailscale 连接（当前源码）**：电脑时间线打开“连接手机”，Flutter 手机端扫码配对；局域网优先直连，可配置自建 FRP TCP 加密中继跨网连接。[使用与部署说明](docs/mobile-connect.md)。这是源码中的新增能力，既有发行包不包含此改动。
+
 [下载安装包](https://github.com/juliohuang/peercarry/releases/latest)：Windows x64、Linux x64、macOS Intel / Apple Silicon。
 **macOS 推荐 DMG**：Apple Silicon 选 `macOS-arm64.dmg`，Intel 选 `macOS-x86_64.dmg`，拖入 Applications 后打开，图标显示在菜单栏。支持 macOS 11 及以上；尚无 Apple Developer ID 签名及公证。v0.3.1 的 `.app` 能检查新版，但暂不支持应用内替换升级，请用新版 DMG 手动替换；CLI/AI Hook 仍使用完整 tar.gz 包。
 **Windows 推荐下载 `PeerCarry-版本号-windows-x64-Setup.exe`，双击安装，无需 Rust 或 PowerShell 命令。**
 默认 Compact（精简）模式只安装托盘程序；需要命令行或 AI Hook 时选 Full。可选开机启动、桌面快捷方式，支持系统设置中卸载，保留用户配置和历史。
-安装包将可选 CLI 一并压缩，离线安装也可选择完整模式。ZIP 留给便携使用和高级用户；旧版 CLI 不会因选择精简模式被删除。
+安装包将可选 CLI 一并压缩，离线安装也可选择完整模式。ZIP 留给便携使用和高级用户。
 从 v0.3.1 起，运行托盘后约一分钟自动检查更新，之后默认每六小时检查；发现新版时提醒，通过托盘「更新并重启」确认安装。
 设置页可关闭自动检查或调整周期。签名与校验失败不会安装，启动失败会尝试回滚。CLI 守护进程不执行托盘自动检查，独立 CLI 请用完整安装包更新。
 
 跨 Tailscale tailnet 的**手动**剪贴板桥接工具。Rust 编写，macOS 菜单栏 / Windows 系统托盘 / Linux 命令行。
+
+**PeerCarry 与旧版 sync-clip 不兼容**：新版本只使用 `PEERCARRY_DATA_DIR` / `peercarry` 数据目录、`x-peercarry-*` HTTP 头、`peercarry` CLI 和 `peercarry-ai` Hook；桌面与手机客户端都必须使用协议 v2。升级前请手动停止并卸载旧程序，再重新配置；旧数据、配置及 Hook bindings 不会自动迁移，新旧程序不可同时运行。详见[更名与不兼容说明](docs/peercarry-rename.md)。
 
 ---
 
@@ -63,19 +69,26 @@ peercarry 的取舍是：**绝不自动写剪贴板**。每一步都由你触发
 * **按需拉取**：列表里只有元数据；点某一条才去它的 `origin.addr` 拿字节。
 * **发现方式**：直接跑 `tailscale status --json` 拿 IP、主机名、OS、在线状态，不自建发现服务。
 
-### Crate 结构
+### 模块与当前接入状态
 
-| crate | 角色 |
+| 模块 | 职责与状态 |
 | --- | --- |
-| `peercarry-core` | 数据模型、存储（redb）、剪贴板、发现、HTTP 服务与客户端 |
-| `peercarry-cli` | `peercarry` 命令行，Linux 主力，其他平台用于脚本化 |
-| `peercarry-tray` | 菜单栏 / 托盘应用，同时内嵌 HTTP 服务 |
+| `peercarry-core` | 剪贴板、历史、文件传输、设备发现、HTTP 服务、AI 事件与提醒；新增手机 TLS 配对已接入源码，尚未发布 |
+| `peercarry-cli` | 命令行、脚本操作和 AI Hook 配置 |
+| `peercarry-tray` | 托盘快捷操作、时间线、设置及内嵌服务 |
+| `peercarry-updater` | 托盘更新检查与安装包校验 |
+| `apps/mobile` | 扫码或输入配对内容连接电脑，查看历史、发送文本和上传文件；真实手机验收待完成 |
+| `peercarry-automation` | 本地固定流程开发原型，尚未接入主界面和跨设备任务执行 |
+| `peercarry-login-assist` / `apps/login-assist-browser` | 独立 TLS 服务与浏览器桥；手机有实验入口，外部 AI 暂停/恢复及真实手机链路待接入或验收 |
+| `peercarry-vault` | 独立加密账号库内核；Flutter 页面尚未接入导航、安全桥接和同步服务 |
+
+手机传输统一使用扫码配对协议；无法扫码时可输入同一份配对内容。已移除手机界面的旧手动地址/token 入口。登录协助与账号库各自保持独立授权边界。上述源码状态不代表现有发行包包含这些功能，详见 [手机连接](docs/mobile-connect.md)、[登录协助状态](docs/login-assist/p0-status.md)及[账号库进度](docs/credential-vault-progress.md)。
 
 ## 安装
 
 ### 共同前提
 
-1. **Tailscale 已安装并登录**到同一个 tailnet —— 本工具靠 `tailscale status --json` 发现节点，没有它就只是个本机剪贴板历史。
+1. **桌面互联**使用同一 tailnet 的 Tailscale 节点发现。**手机连接**可使用扫码局域网直连或自建加密中继，无需安装 Tailscale。没有 Tailscale 且未配置显式绑定时，原服务仅监听本机。
 2. **Rust 工具链**（stable，edition 2021）。编译约 2～7 分钟（release 开了 LTO）。
 
 ```bash
@@ -529,7 +542,7 @@ systemctl --user enable --now peercarry
 
 ## 安全
 
-* 服务默认**绑定 Tailscale IP**，不监听局域网或公网。只有拿不到 Tailscale IP 时才退回 `0.0.0.0`，并会打警告日志。
+* 原服务默认**绑定 Tailscale IP**，拿不到地址时退回 `127.0.0.1`。扫码连接由用户在电脑上启用独立的 TLS 5197 端口；其局域网/中继路由只提供经配对授权的传输功能。
 * Tailscale 已提供 WireGuard 加密与节点认证。`auth_token` 是给多人共享 tailnet 场景的第二道锁，所有节点配成同一个值即可。
 * 文件读取接口只接受**条目 id + 序号**，路径从本机历史里查，不接受任意路径参数 —— 对端无法把它变成任意文件读取。
 * `/v1/actions/*`（会写剪贴板）默认只接受来自 loopback 的请求。要允许对端直接改写本机剪贴板，需显式打开 `node.allow_remote_apply`。

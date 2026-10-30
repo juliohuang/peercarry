@@ -28,6 +28,12 @@ class Element {
         field.disabled = /\sdisabled(?:\s|>)/.test(html);
         return field;
       });
+      for (const match of value.matchAll(/<select\b[^>]*data-path="([^"]+)"[^>]*>([\s\S]*?)<\/select>/g)) {
+        const field = new Element();
+        field.dataset.path = match[1]; field.type = 'select-one';
+        field.value = (match[2].match(/<option value="([^"]+)" selected/) || [,''])[1];
+        this.fields.push(field);
+      }
       this.secretOps = {};
       for (const match of value.matchAll(/<select data-secret-op="([^"]+)"/g)) {
         const control = new Element(); control.value = 'keep'; control.dataset.secretOp = match[1];
@@ -70,7 +76,7 @@ function envelope(s, revision = 'r1', secret = true) {
   const values = { apps: [{ name: 'Example', path: '/synthetic/app', args: ['a,b'] }] };
   for (const field of vm.runInContext('FIELDS', s)) {
     if (!field.path || field.type === 'password') continue;
-    values[field.path] = field.type === 'bool' ? false : field.type === 'number' ? 1 : optional.has(field.path) ? null : '';
+    values[field.path] = field.type === 'language' ? 'system' : field.type === 'bool' ? false : field.type === 'number' ? 1 : optional.has(field.path) ? null : '';
   }
   return { schema: 1, revision, instance_id: 'instance-before', desktop_url: 'http://127.0.0.1:5199/',
     restart_recommended: false, values, secrets: { 'network.auth_token': secret, ai_token: false } };
@@ -111,6 +117,64 @@ const op = (f, path, value) => {
   const select = f.element('cfgform').secretOps[path]; select.value = value;
   f.element('cfgform').emit('change', { target: select });
 };
+
+test('language saves only the selected preference and reloads after an accepted save', async () => {
+  const f = await fixture();
+  await f.s.openSettings();
+  assert.match(f.element('cfgform').innerHTML, /Follow system/);
+  assert.match(f.element('cfgform').innerHTML, /简体中文/);
+  assert.equal(control(f, 'ui.language').value, 'system');
+  let reloads = 0;
+  f.s.location.reload = () => { reloads++; };
+  f.s.fetch = async (url, init = {}) => {
+    f.calls.push({ url, init });
+    if (url === '/v1/desktop/language') return ok({ preference: 'zh', system_language: 'en', language: 'zh' });
+    const saved = envelope(f.s, 'language-saved');
+    saved.values['ui.language'] = 'zh';
+    return ok(saved);
+  };
+  control(f, 'ui.language').value = 'zh';
+  assert.equal(reloads, 0);
+  await f.s.saveConfig(false);
+  const submitted = f.calls.find(call => call.url === '/v1/desktop/settings' && call.init.method === 'POST');
+  assert.deepEqual(JSON.parse(submitted.init.body).changes, { 'ui.language': 'zh' });
+  assert.deepEqual(JSON.parse(submitted.init.body).secret_changes, {});
+  assert.equal(reloads, 1);
+  assert.equal(f.storageWrites.at(-1)[0], 'peercarry.ui.language.changed');
+});
+
+test('failed language save and a language notification never discard a settings draft', async () => {
+  const f = await fixture(); await f.s.openSettings();
+  let reloads = 0;
+  f.s.location.reload = () => { reloads++; };
+  control(f, 'ui.language').value = 'zh';
+  f.s.fetch = async (url, init = {}) => {
+    f.calls.push({ url, init });
+    return url === '/v1/desktop/language' ? ok({ language: 'zh' }) : fail(409);
+  };
+  await f.s.saveConfig(false);
+  assert.equal(control(f, 'ui.language').value, 'zh');
+  assert.equal(reloads, 0);
+  assert.equal(f.storageWrites.length, 0);
+  assert.equal(await f.s.PeerCarryLocale.checkForChange(), false);
+  assert.equal(control(f, 'ui.language').value, 'zh');
+  assert.equal(reloads, 0);
+});
+
+test('discarding a settings draft resumes a pending language change after leaving safely', async () => {
+  const f = await fixture(); await f.s.openSettings();
+  let reloads = 0;
+  f.s.location.reload = () => { reloads++; };
+  control(f, 'node.name').value = 'Unsaved name';
+  f.s.fetch = async url => url === '/v1/desktop/language' ? ok({ language: 'zh' }) : ok([]);
+  assert.equal(await f.s.PeerCarryLocale.checkForChange(), false);
+  assert.equal(await f.s.showTab('notes'), false);
+  assert.equal(reloads, 0);
+  await f.element('cfg-discard').onclick();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reloads, 1);
+  assert.equal(f.element('cfgform').innerHTML, '');
+});
 
 test('unsaved public fields, secrets and apps stay in settings until explicitly discarded', async () => {
   for (const kind of ['public', 'secret', 'apps']) {

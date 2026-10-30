@@ -33,10 +33,11 @@ struct MockState {
 }
 
 async fn capture(State(state): State<MockState>, headers: HeaderMap) -> Response {
+    assert!(!headers.contains_key("x-syncclip-token"));
     state.capture_hits.fetch_add(1, Ordering::SeqCst);
     if let Some(expected) = &state.expected_token {
         let actual = headers
-            .get("x-syncclip-token")
+            .get("x-peercarry-token")
             .and_then(|value| value.to_str().ok());
         if actual != Some(expected.as_str()) {
             return StatusCode::UNAUTHORIZED.into_response();
@@ -98,6 +99,27 @@ fn client_with_token(token: Option<&str>) -> PeerClient {
     let mut config = Config::default();
     config.network.auth_token = token.map(str::to_owned);
     PeerClient::new(&config).unwrap()
+}
+
+#[tokio::test]
+async fn hello_rejects_incompatible_protocol_versions() {
+    for version in [1, 2, 3] {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let app = Router::new().route("/v1/hello", get(move || async move {
+            Json(serde_json::json!({"protocol":version,"host":"fixture", "node_id":"fixture", "os":"test", "version":"test"}))
+        }));
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let result = client_with_token(None).hello(&url).await;
+        assert_eq!(result.is_ok(), version == 2);
+        if let Err(error) = result {
+            assert!(error.to_string().contains("unsupported peer protocol"));
+        }
+        server.abort();
+        let _ = server.await;
+    }
 }
 
 #[tokio::test]

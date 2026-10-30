@@ -61,6 +61,7 @@ async fn desktop_ui_works_with_peer_auth_but_rejects_remote_and_cross_origin_con
         "/quick",
         "/assets/ui-locale.js",
         "/assets/transfer-center.js",
+        "/v1/desktop/language",
         "/v1/transfers",
         "/v1/ai/overview",
     ] {
@@ -76,12 +77,13 @@ async fn desktop_ui_works_with_peer_auth_but_rejects_remote_and_cross_origin_con
         "/quick",
         "/assets/ui-locale.js",
         "/assets/transfer-center.js",
+        "/v1/desktop/language",
         "/v1/transfers",
     ] {
         let response = client
             .get(format!("{base}{path}"))
             .header("x-test-peer", "1")
-            .header("x-syncclip-token", "synthetic-peer-secret")
+            .header("x-peercarry-token", "synthetic-peer-secret")
             .send()
             .await
             .unwrap();

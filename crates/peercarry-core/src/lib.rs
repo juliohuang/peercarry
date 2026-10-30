@@ -19,6 +19,7 @@ pub mod config;
 mod desktop_settings;
 pub mod engine;
 pub mod error;
+pub mod locale;
 pub mod maintenance;
 pub mod mobile_connect;
 pub mod model;

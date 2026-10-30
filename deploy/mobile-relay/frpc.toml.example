@@ -1,0 +1,15 @@
+# Desktop beside PeerCarry. The phone runs neither frpc nor a VPN.
+serverAddr = "{{ .Envs.PEERCARRY_RELAY_HOST }}"
+serverPort = 7000
+auth.method = "token"
+auth.token = "{{ .Envs.PEERCARRY_FRP_TOKEN }}"
+transport.tls.enable = true
+
+[[proxies]]
+name = "peercarry-mobile"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 5197
+remotePort = 65197
+# Forward raw TLS. Do not use an HTTP/HTTPS termination plugin,
+# a reverse-proxy TLS terminator, or the unscoped desktop port 5199.

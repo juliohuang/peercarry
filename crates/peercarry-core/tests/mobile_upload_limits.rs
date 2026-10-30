@@ -64,8 +64,8 @@ fn config(enabled: bool) -> Config {
 }
 
 fn auth(req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
-    req.header("x-syncclip-device-id", DEVICE)
-        .header("x-syncclip-device-token", TOKEN)
+    req.header("x-peercarry-device-id", DEVICE)
+        .header("x-peercarry-device-token", TOKEN)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

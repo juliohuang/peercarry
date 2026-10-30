@@ -204,7 +204,7 @@ impl DesktopLease {
                 System::Threading::{CreateMutexW, WaitForSingleObject},
             },
         };
-        let handle = unsafe { CreateMutexW(None, false, w!("Local\\SyncClipAutomationP1")) }
+        let handle = unsafe { CreateMutexW(None, false, w!("Local\\PeerCarryAutomationP1")) }
             .map_err(native_error)?;
         let wait = unsafe { WaitForSingleObject(handle, 0) };
         if wait != WAIT_OBJECT_0 && wait != WAIT_ABANDONED {

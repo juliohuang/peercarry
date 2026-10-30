@@ -53,8 +53,8 @@ async fn restart_recovers_offset_and_corruption_fails_closed() {
         engine,
     };
     let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert("x-syncclip-device-id", "phone".parse().unwrap());
-    headers.insert("x-syncclip-device-token", "r".repeat(32).parse().unwrap());
+    headers.insert("x-peercarry-device-id", "phone".parse().unwrap());
+    headers.insert("x-peercarry-device-token", "r".repeat(32).parse().unwrap());
     let client = Client::builder()
         .no_proxy()
         .default_headers(headers)

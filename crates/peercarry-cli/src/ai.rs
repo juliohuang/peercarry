@@ -11,8 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-// Stable ownership marker for hooks configured before the PeerCarry rename.
-const BINDING_ID: &str = "sync-clip-ai";
+const BINDING_ID: &str = "peercarry-ai";
 const MAX_STDIN: usize = 64 * 1024;
 const MAX_SPOOL_FILES: usize = 256;
 const MAX_SPOOL_BYTES: u64 = 8 * 1024 * 1024;
@@ -189,18 +188,14 @@ fn command_is_ours(value: &Value, command: &str) -> bool {
         && value
             .get("command")
             .and_then(Value::as_str)
-            .is_some_and(|configured| {
-                configured == command
-                    || configured
-                        == command
-                            .replace("peercarry.exe", "sclip.exe")
-                            .replace("/peercarry\"", "/sclip\"")
-            })
+            .is_some_and(|configured| configured == command)
 }
 
-fn zcode_is_ours(value: &Value, command: &str) -> bool {
+fn zcode_is_ours(value: &Value, command: &str, executable: &Path) -> bool {
     command_is_ours(value, command)
         || (value.get("type").and_then(Value::as_str) == Some("process")
+            && value.get("command").and_then(Value::as_str)
+                == Some(executable.to_string_lossy().as_ref())
             && value
                 .get("args")
                 .and_then(Value::as_array)
@@ -313,13 +308,13 @@ fn edit_zcode(
             group
                 .get("hooks")
                 .and_then(Value::as_array)
-                .map(|hs| hs.iter().any(|h| zcode_is_ours(h, command)))
+                .map(|hs| hs.iter().any(|h| zcode_is_ours(h, command, executable)))
                 .unwrap_or(false)
         });
         if remove {
             for group in array.iter_mut() {
                 if let Some(handlers) = group.get_mut("hooks").and_then(Value::as_array_mut) {
-                    handlers.retain(|entry| !zcode_is_ours(entry, command));
+                    handlers.retain(|entry| !zcode_is_ours(entry, command, executable));
                 }
             }
         }
@@ -395,7 +390,7 @@ fn find_on_path(name: &str) -> Option<PathBuf> {
 }
 
 async fn hook(tool: &str, binding_id: &str) -> Result<()> {
-    if binding_id != BINDING_ID && binding_id != "peercarry-ai" {
+    if binding_id != BINDING_ID {
         anyhow::bail!("unknown binding id");
     }
     let mut input = Vec::new();
@@ -504,7 +499,7 @@ mod tests {
         let mut codex = json!({"hooks":{"Stop":[{"hooks":[{"type":"command","command":"other"},{"type":"command","command":"ours"}]}]}});
         assert!(edit_codex(&mut codex, "ours", true).unwrap());
         assert_eq!(codex["hooks"]["Stop"][0]["hooks"][0]["command"], "other");
-        let mut zcode = json!({"hooks":{"enabled":true,"events":{"Stop":[{"hooks":[{"command":"other"},{"type":"process","command":"x","args":["ai","hook","--tool","zcode","--binding-id","sync-clip-ai"]}]}]}}});
+        let mut zcode = json!({"hooks":{"enabled":true,"events":{"Stop":[{"hooks":[{"command":"other"},{"type":"process","command":"x","args":["ai","hook","--tool","zcode","--binding-id","peercarry-ai"]}]}]}}});
         assert!(edit_zcode(&mut zcode, "ours", Path::new("x"), true).unwrap());
         assert_eq!(
             zcode["hooks"]["events"]["Stop"][0]["hooks"]
@@ -516,16 +511,97 @@ mod tests {
     }
 
     #[test]
-    fn legacy_cli_hook_is_owned_after_rename() {
-        let command = "\"C:/tools/peercarry.exe\" ai hook --tool codex --binding-id sync-clip-ai";
-        assert!(command_is_ours(
-            &json!({"type":"command", "command":command.replace("peercarry.exe", "sclip.exe")}),
-            command
-        ));
+    fn old_marker_and_executable_are_not_owned() {
+        let command = "\"C:/tools/peercarry.exe\" ai hook --tool codex --binding-id peercarry-ai";
+        for old in [
+            command.replace(BINDING_ID, "sync-clip-ai"),
+            command.replace("peercarry.exe", "sclip.exe"),
+        ] {
+            assert!(!command_is_ours(
+                &json!({"type":"command", "command":old}),
+                command
+            ));
+        }
         assert!(!command_is_ours(
             &json!({"type":"command", "command":"other"}),
             command
         ));
+        let executable = Path::new("C:/tools/peercarry.exe");
+        let zcode_command = hook_command("zcode", executable).unwrap();
+        let old_process = json!({"type":"process", "command":"C:/tools/sclip.exe", "args":["ai","hook","--tool","zcode","--binding-id",BINDING_ID]});
+        assert!(!zcode_is_ours(&old_process, &zcode_command, executable));
+    }
+
+    #[test]
+    fn new_hook_commands_use_current_brand() {
+        let command = hook_command("codex", Path::new("C:/tools/peercarry.exe")).unwrap();
+        assert!(command.ends_with("--binding-id peercarry-ai"));
+        assert!(command.contains(BINDING_ID));
+    }
+
+    #[test]
+    fn command_matching_requires_exact_current_executable_and_marker() {
+        let command = hook_command("codex", Path::new("C:/tools/peercarry.exe")).unwrap();
+        let equivalent_path = command.replace("C:/tools", "C:/other");
+        assert!(!command_is_ours(
+            &json!({"type":"command", "command":equivalent_path}),
+            &command
+        ));
+        assert!(command_is_ours(
+            &json!({"type":"command", "command":command}),
+            &command
+        ));
+    }
+
+    #[test]
+    fn codex_bind_leaves_old_marker_unowned_and_preserves_other_handlers() {
+        let command = hook_command("codex", Path::new("C:/tools/peercarry.exe")).unwrap();
+        let old = command.replace(BINDING_ID, "sync-clip-ai");
+        let mut value = json!({"hooks":{"Stop":[{"matcher":"test", "hooks":[
+            {"type":"command", "command":old,"timeout":10},
+            {"type":"command", "command":"other"}
+        ]}]}});
+        assert!(edit_codex(&mut value, &command, false).unwrap());
+        let group = &value["hooks"]["Stop"][0];
+        assert_eq!(group["matcher"], "test");
+        assert_eq!(group["hooks"].as_array().unwrap().len(), 2);
+        assert_eq!(group["hooks"][0]["command"], old);
+        assert_eq!(group["hooks"][0]["timeout"], 10);
+        assert_eq!(group["hooks"][1]["command"], "other");
+        assert_eq!(value["hooks"]["Stop"].as_array().unwrap().len(), 2);
+        assert_eq!(value["hooks"]["Stop"][1]["hooks"][0]["command"], command);
+        assert!(!edit_codex(&mut value, &command, false).unwrap());
+        assert!(edit_codex(&mut value, &command, true).unwrap());
+        assert_eq!(value["hooks"]["Stop"].as_array().unwrap().len(), 1);
+        assert_eq!(value["hooks"]["Stop"][0]["hooks"][0]["command"], old);
+    }
+
+    #[test]
+    fn zcode_bind_leaves_old_marker_unowned_and_preserves_other_handlers() {
+        let executable = Path::new("C:/tools/peercarry.exe");
+        let command = hook_command("zcode", executable).unwrap();
+        let old = command.replace(BINDING_ID, "sync-clip-ai");
+        let mut value = json!({"hooks":{"enabled":true,"events":{"Stop":[{"hooks":[
+            {"type":"command", "command":old},
+            {"type":"command", "command":"other"}
+        ]}]}}});
+        assert!(edit_zcode(&mut value, &command, executable, false).unwrap());
+        let handlers = value["hooks"]["events"]["Stop"][0]["hooks"]
+            .as_array()
+            .unwrap();
+        assert_eq!(handlers.len(), 2);
+        assert_eq!(handlers[0]["command"], old);
+        assert_eq!(handlers[1]["command"], "other");
+        assert_eq!(
+            value["hooks"]["events"]["Stop"][1]["hooks"][0]["command"],
+            executable.to_string_lossy().as_ref()
+        );
+        assert!(!edit_zcode(&mut value, &command, executable, false).unwrap());
+        assert!(edit_zcode(&mut value, &command, executable, true).unwrap());
+        assert_eq!(
+            value["hooks"]["events"]["Stop"].as_array().unwrap().len(),
+            1
+        );
     }
 
     #[test]
@@ -535,7 +611,7 @@ mod tests {
 
     #[test]
     fn zcode_remove_preserves_enabled_flag() {
-        let mut value = json!({"hooks":{"enabled":true,"events":{"Stop":[{"hooks":[{"type":"process","command":"x","args":["ai","hook","--tool","zcode","--binding-id","sync-clip-ai"]}]}]}}});
+        let mut value = json!({"hooks":{"enabled":true,"events":{"Stop":[{"hooks":[{"type":"process","command":"x","args":["ai","hook","--tool","zcode","--binding-id","peercarry-ai"]}]}]}}});
         assert!(edit_zcode(&mut value, "ours", Path::new("x"), true).unwrap());
         assert_eq!(value["hooks"]["enabled"], true);
     }

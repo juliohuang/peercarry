@@ -1,0 +1,8 @@
+# Relay server. Set a strong random PEERCARRY_FRP_TOKEN on both machines.
+# Never put a real secret in this tracked example.
+bindPort = 7000
+auth.method = "token"
+auth.token = "{{ .Envs.PEERCARRY_FRP_TOKEN }}"
+transport.tls.force = true
+# One desktop. Allocate a distinct remote port for each additional computer.
+allowPorts = [{ single = 65197 }]

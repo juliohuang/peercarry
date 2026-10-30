@@ -49,7 +49,6 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 [Files]
 Source: "{#BinaryDir}\peercarry-tray.exe"; DestDir: "{app}"; Flags: ignoreversion; Components: desktop
 Source: "{#BinaryDir}\peercarry.exe"; DestDir: "{app}"; Flags: ignoreversion; Components: cli
-Source: "{#BinaryDir}\peercarry.exe"; DestDir: "{app}"; DestName: "sclip.exe"; Flags: ignoreversion; Components: cli
 Source: "..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
@@ -65,16 +64,7 @@ Filename: "{app}\peercarry-tray.exe"; Description: "Launch PeerCarry"; Flags: no
 [Code]
 function InstallDirectory(Param: String): String;
 begin
-  { Retain the old path so existing absolute Hook commands keep working. }
-  if DirExists(ExpandConstant('{localappdata}\sync-clip')) then
-    Result := ExpandConstant('{localappdata}\sync-clip')
-  else
-    Result := ExpandConstant('{localappdata}\peercarry');
-end;
-
-procedure RegisterExtraCloseApplicationsResources;
-begin
-  RegisterExtraCloseApplicationsResource(False, ExpandConstant('{app}\sync-clip-tray.exe'));
+  Result := ExpandConstant('{localappdata}\peercarry');
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -82,11 +72,6 @@ var
   Command: String;
 begin
   if CurStep = ssPostInstall then begin
-    { Only remove entries belonging to this installation, never another copy. }
-    if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'sync-clip', Command) then
-      if (CompareText(Command, ExpandConstant('"{app}\sync-clip-tray.exe"')) = 0) or
-         (CompareText(Command, ExpandConstant('{app}\sync-clip-tray.exe')) = 0) then
-        RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'sync-clip');
     if not WizardIsTaskSelected('startup') then
       if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'peercarry', Command) then
         if (CompareText(Command, ExpandConstant('"{app}\peercarry-tray.exe"')) = 0) or

@@ -1,0 +1,555 @@
+{
+  "date": "2026-10-29",
+  "kind": "Implemented UI captured in real Edge with synthetic local data",
+  "validation": {
+    "core_tests": 93,
+    "node_tests": 107,
+    "flutter_widget_tests": 13,
+    "flutter_analyze": "passed",
+    "rust_format": "passed",
+    "windows_debug_build": "passed",
+    "built_apps_include_current_ui_assets": {
+      "peercarry": {
+        "timeline.html": true,
+        "notebook.js": true,
+        "notebook.css": true,
+        "desktop-theme.css": true,
+        "quick.html": true
+      },
+      "peercarry-tray": {
+        "timeline.html": true,
+        "notebook.js": true,
+        "notebook.css": true,
+        "desktop-theme.css": true,
+        "quick.html": true
+      }
+    },
+    "browser_cases": [
+      {
+        "case": "zh-1366x900",
+        "pages": [
+          {
+            "page": "notes",
+            "metrics": {
+              "document": 1366,
+              "viewport": 1366,
+              "content": 1142,
+              "contentWidth": 1142,
+              "theme": "#176b5b",
+              "notebookColumns": "354.016px 787.984px"
+            }
+          },
+          {
+            "page": "todo",
+            "metrics": {
+              "document": 1366,
+              "viewport": 1366,
+              "content": 1142,
+              "contentWidth": 1142,
+              "theme": "#176b5b",
+              "notebookColumns": "354.016px 787.984px"
+            }
+          },
+          {
+            "page": "device-clipboard",
+            "metrics": {
+              "document": 1351,
+              "viewport": 1366,
+              "content": 1127,
+              "contentWidth": 1127,
+              "theme": "#176b5b",
+              "notebookColumns": "minmax(250px, 31%) minmax(0px, 1fr)"
+            }
+          },
+          {
+            "page": "transfers",
+            "metrics": {
+              "document": 1366,
+              "viewport": 1366,
+              "content": 1142,
+              "contentWidth": 1142,
+              "theme": "#176b5b",
+              "notebookColumns": "minmax(250px, 31%) minmax(0px, 1fr)"
+            }
+          },
+          {
+            "page": "ai",
+            "metrics": {
+              "document": 1366,
+              "viewport": 1366,
+              "content": 1142,
+              "contentWidth": 1142,
+              "theme": "#176b5b",
+              "notebookColumns": "minmax(250px, 31%) minmax(0px, 1fr)"
+            }
+          },
+          {
+            "page": "mobile",
+            "metrics": {
+              "document": 1366,
+              "viewport": 1366,
+              "content": 1142,
+              "contentWidth": 1142,
+              "theme": "#176b5b",
+              "notebookColumns": "minmax(250px, 31%) minmax(0px, 1fr)"
+            }
+          },
+          {
+            "page": "settings",
+            "metrics": {
+              "document": 1351,
+              "viewport": 1366,
+              "content": 1127,
+              "contentWidth": 1127,
+              "theme": "#176b5b",
+              "notebookColumns": "minmax(250px, 31%) minmax(0px, 1fr)"
+            }
+          }
+        ],
+        "runtime_errors": [],
+        "passed": true
+      },
+      {
+        "case": "en-940x680",
+        "pages": [
+          {
+            "page": "notes",
+            "metrics": {
+              "document": 940,
+              "viewport": 940,
+              "content": 762,
+              "contentWidth": 762,
+              "theme": "#176b5b",
+              "notebookColumns": "246px 516px"
+            }
+          },
+          {
+            "page": "todo",
+            "metrics": {
+              "document": 940,
+              "viewport": 940,
+              "content": 762,
+              "contentWidth": 762,
+              "theme": "#176b5b",
+              "notebookColumns": "246px 516px"
+            }
+          },
+          {
+            "page": "device-clipboard",
+            "metrics": {
+              "document": 925,
+              "viewport": 940,
+              "content": 747,
+              "contentWidth": 747,
+              "theme": "#176b5b",
+              "notebookColumns": "246px minmax(0px, 1fr)"
+            }
+          },
+          {
+            "page": "transfers",
+            "metrics": {
+              "document": 940,
+              "viewport": 940,
+              "content": 762,
+              "contentWidth": 762,
+              "theme": "#176b5b",
+              "notebookColumns": "246px minmax(0px, 1fr)"
+            }
+          },
+          {
+            "page": "ai",
+            "metrics": {
+              "document": 940,
+              "viewport": 940,
+              "content": 762,
+              "contentWidth": 762,
+              "theme": "#176b5b",
+              "notebookColumns": "246px minmax(0px, 1fr)"
+            }
+          },
+          {
+            "page": "mobile",
+            "metrics": {
+              "document": 940,
+              "viewport": 940,
+              "content": 762,
+              "contentWidth": 762,
+              "theme": "#176b5b",
+              "notebookColumns": "246px minmax(0px, 1fr)"
+            }
+          },
+          {
+            "page": "settings",
+            "metrics": {
+              "document": 925,
+              "viewport": 940,
+              "content": 747,
+              "contentWidth": 747,
+              "theme": "#176b5b",
+              "notebookColumns": "246px minmax(0px, 1fr)"
+            }
+          }
+        ],
+        "runtime_errors": [],
+        "passed": true
+      },
+      {
+        "case": "zh-560x420",
+        "pages": [
+          {
+            "page": "notes",
+            "metrics": {
+              "document": 560,
+              "viewport": 560,
+              "content": 560,
+              "contentWidth": 560,
+              "theme": "#176b5b",
+              "notebookColumns": "560px"
+            }
+          },
+          {
+            "page": "todo",
+            "metrics": {
+              "document": 560,
+              "viewport": 560,
+              "content": 560,
+              "contentWidth": 560,
+              "theme": "#176b5b",
+              "notebookColumns": "560px"
+            }
+          },
+          {
+            "page": "device-clipboard",
+            "metrics": {
+              "document": 560,
+              "viewport": 560,
+              "content": 545,
+              "contentWidth": 545,
+              "theme": "#176b5b",
+              "notebookColumns": "minmax(0px, 1fr)"
+            }
+          },
+          {
+            "page": "transfers",
+            "metrics": {
+              "document": 560,
+              "viewport": 560,
+              "content": 545,
+              "contentWidth": 545,
+              "theme": "#176b5b",
+              "notebookColumns": "minmax(0px, 1fr)"
+            }
+          },
+          {
+            "page": "ai",
+            "metrics": {
+              "document": 560,
+              "viewport": 560,
+              "content": 545,
+              "contentWidth": 545,
+              "theme": "#176b5b",
+              "notebookColumns": "minmax(0px, 1fr)"
+            }
+          },
+          {
+            "page": "mobile",
+            "metrics": {
+              "document": 560,
+              "viewport": 560,
+              "content": 545,
+              "contentWidth": 545,
+              "theme": "#176b5b",
+              "notebookColumns": "minmax(0px, 1fr)"
+            }
+          },
+          {
+            "page": "settings",
+            "metrics": {
+              "document": 560,
+              "viewport": 560,
+              "content": 545,
+              "contentWidth": 545,
+              "theme": "#176b5b",
+              "notebookColumns": "minmax(0px, 1fr)"
+            }
+          }
+        ],
+        "navigation_resets_inner_scroll": true,
+        "runtime_errors": [],
+        "passed": true
+      },
+      {
+        "case": "en-560x420",
+        "pages": [
+          {
+            "page": "notes",
+            "metrics": {
+              "document": 560,
+              "viewport": 560,
+              "content": 560,
+              "contentWidth": 560,
+              "theme": "#176b5b",
+              "notebookColumns": "560px"
+            }
+          },
+          {
+            "page": "todo",
+            "metrics": {
+              "document": 560,
+              "viewport": 560,
+              "content": 560,
+              "contentWidth": 560,
+              "theme": "#176b5b",
+              "notebookColumns": "560px"
+            }
+          },
+          {
+            "page": "device-clipboard",
+            "metrics": {
+              "document": 560,
+              "viewport": 560,
+              "content": 545,
+              "contentWidth": 545,
+              "theme": "#176b5b",
+              "notebookColumns": "minmax(0px, 1fr)"
+            }
+          },
+          {
+            "page": "transfers",
+            "metrics": {
+              "document": 560,
+              "viewport": 560,
+              "content": 545,
+              "contentWidth": 545,
+              "theme": "#176b5b",
+              "notebookColumns": "minmax(0px, 1fr)"
+            }
+          },
+          {
+            "page": "ai",
+            "metrics": {
+              "document": 560,
+              "viewport": 560,
+              "content": 545,
+              "contentWidth": 545,
+              "theme": "#176b5b",
+              "notebookColumns": "minmax(0px, 1fr)"
+            }
+          },
+          {
+            "page": "mobile",
+            "metrics": {
+              "document": 560,
+              "viewport": 560,
+              "content": 545,
+              "contentWidth": 545,
+              "theme": "#176b5b",
+              "notebookColumns": "minmax(0px, 1fr)"
+            }
+          },
+          {
+            "page": "settings",
+            "metrics": {
+              "document": 560,
+              "viewport": 560,
+              "content": 545,
+              "contentWidth": 545,
+              "theme": "#176b5b",
+              "notebookColumns": "minmax(0px, 1fr)"
+            }
+          }
+        ],
+        "navigation_resets_inner_scroll": true,
+        "runtime_errors": [],
+        "passed": true
+      },
+      {
+        "case": "zh-390x760",
+        "pages": [
+          {
+            "page": "notes",
+            "metrics": {
+              "document": 390,
+              "viewport": 390,
+              "content": 390,
+              "contentWidth": 390,
+              "theme": "#176b5b",
+              "notebookColumns": "390px"
+            }
+          },
+          {
+            "page": "todo",
+            "metrics": {
+              "document": 390,
+              "viewport": 390,
+              "content": 390,
+              "contentWidth": 390,
+              "theme": "#176b5b",
+              "notebookColumns": "390px"
+            }
+          },
+          {
+            "page": "device-clipboard",
+            "metrics": {
+              "document": 390,
+              "viewport": 390,
+              "content": 375,
+              "contentWidth": 375,
+              "theme": "#176b5b",
+              "notebookColumns": "minmax(0px, 1fr)"
+            }
+          },
+          {
+            "page": "transfers",
+            "metrics": {
+              "document": 390,
+              "viewport": 390,
+              "content": 390,
+              "contentWidth": 390,
+              "theme": "#176b5b",
+              "notebookColumns": "minmax(0px, 1fr)"
+            }
+          },
+          {
+            "page": "ai",
+            "metrics": {
+              "document": 390,
+              "viewport": 390,
+              "content": 390,
+              "contentWidth": 390,
+              "theme": "#176b5b",
+              "notebookColumns": "minmax(0px, 1fr)"
+            }
+          },
+          {
+            "page": "mobile",
+            "metrics": {
+              "document": 390,
+              "viewport": 390,
+              "content": 390,
+              "contentWidth": 390,
+              "theme": "#176b5b",
+              "notebookColumns": "minmax(0px, 1fr)"
+            }
+          },
+          {
+            "page": "settings",
+            "metrics": {
+              "document": 390,
+              "viewport": 390,
+              "content": 375,
+              "contentWidth": 375,
+              "theme": "#176b5b",
+              "notebookColumns": "minmax(0px, 1fr)"
+            }
+          }
+        ],
+        "navigation_resets_inner_scroll": true,
+        "runtime_errors": [],
+        "passed": true
+      },
+      {
+        "case": "quick-zh-390x590",
+        "metrics": {
+          "width": 390,
+          "viewport": 390,
+          "height": 590,
+          "viewportHeight": 590,
+          "theme": "#176b5b"
+        },
+        "passed": true
+      },
+      {
+        "case": "quick-en-340x420",
+        "metrics": {
+          "width": 325,
+          "viewport": 340,
+          "height": 439,
+          "viewportHeight": 420,
+          "theme": "#176b5b"
+        },
+        "passed": true
+      }
+    ]
+  },
+  "source_sha256": {
+    "crates/peercarry-core/timeline.html": "83fe0c8131a9c016235fe6bf7e1bdb64e24f68a6eb522ff86f62ff6a246945d3",
+    "crates/peercarry-core/notebook.js": "2b7b03c66c43810471bfa450d01909a4a804cb18f57d94899d0d67e90d68f92c",
+    "crates/peercarry-core/notebook.css": "147732defaec21ee39a46c8b9d978c28f715df40ea7157077517377a958bf224",
+    "crates/peercarry-core/desktop-theme.css": "8c156dc21055dfc007c031bbbe177e9c2798249c81fde66cc8fe562ddb78a32b",
+    "crates/peercarry-core/quick.html": "cf62f4349f608dc7965b85250222c936613766b65135225b1238ef06a2c4f2cf",
+    "crates/peercarry-core/src/server.rs": "3b21b0bb950e349a3e6ff356369094fe58f5fddb8ee173f074630fda2b14f573",
+    "scripts/tests/notebook.test.cjs": "589108a1f7ee6fa69a72379eb373c382a48558229d2eadc2d0139560e25d4ae2",
+    "scripts/tests/ui-locale.test.cjs": "9f1ff730ff8019349c71b603cd98581ae75da1a430e415c0d469f00d9a56eabc",
+    "scripts/tests/workbench.test.cjs": "5f6d7d2227f83c3eb4bed8480b11305d9470cc001dc134e73067179bba443214",
+    "apps/mobile/lib/app_theme.dart": "32d69081a686a93826c5a6d63997465831cf0e6e26948552f959b792f8a99ec6"
+  },
+  "screenshots": [
+    {
+      "file": "notes.png",
+      "width": 1366,
+      "height": 900,
+      "sha256": "f6331658482770c8de493cd0c596735eccd60034c8cf5b9ad19f42b7d14b4856"
+    },
+    {
+      "file": "todo.png",
+      "width": 1366,
+      "height": 900,
+      "sha256": "596f5c31397dfee71345eebd9bf8fe018760b36d108f2fcf3628ba4e38c2ce46"
+    },
+    {
+      "file": "devices.png",
+      "width": 1366,
+      "height": 900,
+      "sha256": "63c4e5a66f23fa59c4dc1e5f71adc57bee7de59623d97c18bcbd986c2cb2f096"
+    },
+    {
+      "file": "settings.png",
+      "width": 1366,
+      "height": 900,
+      "sha256": "c8cc242cc7987678e11f427b40256062a6b8bdb82a2b92b26f56bb000ce5c159"
+    },
+    {
+      "file": "phone-connection.png",
+      "width": 1366,
+      "height": 900,
+      "sha256": "bd136f0c521d898d293bf8bd4f9b75ed0364649527100ec7106f0bbcbda7cd7f"
+    },
+    {
+      "file": "notes-compact.png",
+      "width": 390,
+      "height": 760,
+      "sha256": "8bffdfe5c5c6de4126c4cc1d40d798bd2ee09d9200149def08a44bfb39a90bc3"
+    },
+    {
+      "file": "todo-compact.png",
+      "width": 560,
+      "height": 420,
+      "sha256": "efe805d5038535e955a029987a9c70919091cd4f4267c1bb7804a37420299b39"
+    },
+    {
+      "file": "navigation-compact.png",
+      "width": 560,
+      "height": 420,
+      "sha256": "70a276eea806d930bcccff8ecbb6a9fbdf2ec970c763bf554c2f9cbddb2b16d8"
+    },
+    {
+      "file": "quick-panel.png",
+      "width": 390,
+      "height": 590,
+      "sha256": "d1dc76621b7533e4b04ac271ca30e32cb6eb595f07d75f6ecc2bfb00e44fddbd"
+    },
+    {
+      "file": "quick-panel-compact.png",
+      "width": 340,
+      "height": 420,
+      "sha256": "998c0fdc8bd45f294940eae60557eaed49f438bdbd155a2985c2a7b900f6e60c"
+    }
+  ],
+  "limits": [
+    "No installed-version replacement or release",
+    "No real device or clipboard acceptance",
+    "Native tray/WebView and macOS/Linux require separate acceptance",
+    "AI tool integration not accepted by these layout checks"
+  ]
+}

@@ -12,7 +12,7 @@ class Element {
     this.value = ''; this.checked = false; this.hidden = false; this.disabled = false; this.type = ''; this.href = '';
   }
   get classList() { return { toggle: (name, value) => { const set = new Set(this.className.split(/\s+/).filter(Boolean)); if (value) set.add(name); else set.delete(name); this.className = [...set].join(' '); } }; }
-  append(...nodes) { for (const node of nodes) { if (!node || typeof node !== 'object') continue; node.parentNode = this; this.children.push(node); } }
+  append(...nodes) { for (const node of nodes) { if (!node || typeof node !== 'object') continue; if (node.parentNode) node.parentNode.children = node.parentNode.children.filter(child => child !== node); node.parentNode = this; this.children.push(node); } }
   replaceChildren(...nodes) { this.children.forEach(n => n.parentNode = null); this.children = []; this.append(...nodes); }
   addEventListener(name, fn) { (this.listeners[name] ||= []).push(fn); }
   setAttribute(name, value) { this.attributes[name] = String(value); }
@@ -504,6 +504,69 @@ test('transfer failure after publish identifies local history and does not claim
 
 test('test file is scoped to the assigned module contract', () => {
   assert.ok(fs.existsSync(path.join(__dirname,'../../crates/peercarry-core/notebook.js')));
+});
+
+test('Todo composer Enter adds once, keeps composer focus and respects composition', async () => {
+  const todo = note({ id: 'todo-composer', kind: 'todo', title: 'List', markdown: '', tasks: [] });
+  const f = await fixture({ items: [todo] });
+  await f.api.setSection('todo');
+  await buttonNamed(f.root, 'List').dispatch('click');
+  let composer = byClass(f.root, 'notebook-task-composer-input');
+  composer.value = 'Keep this task';
+  await composer.dispatch('input');
+  await composer.dispatch('keydown', { key: 'Enter', isComposing: true, preventDefault() { throw Error('composition must not submit'); } });
+  assert.equal(f.root.querySelectorAll('.notebook-task-input').length, 0);
+  await composer.dispatch('keydown', { key: 'Enter', preventDefault() {} });
+  assert.equal(f.root.querySelectorAll('.notebook-task-input').length, 1);
+  assert.equal(byClass(f.root, 'notebook-task-input').value, 'Keep this task');
+  composer = byClass(f.root, 'notebook-task-composer-input');
+  assert.equal(composer.value, '');
+  assert.equal(f.root.ownerDocument.activeElement, composer);
+  await composer.dispatch('keydown', { key: 'Enter', preventDefault() { throw Error('empty composer must not submit'); } });
+  assert.equal(f.root.querySelectorAll('.notebook-task-input').length, 1);
+  assert.equal(await f.api.whenIdle(), true);
+  assert.equal(f.calls.filter(call => call.method === 'PUT').at(-1).body.tasks.length, 1);
+});
+
+test('leaving a Todo list saves unfinished composer text and blocks navigation on failure', async () => {
+  for (const failure of [false, true]) {
+    const todo = note({ id: 'composer-draft', kind: 'todo', title: 'List', markdown: '', tasks: [] });
+    const f = await fixture({ items: [todo], onRequest: async (url, init) => {
+      if (failure && init.method === 'PUT') return { ok: false, status: 503, json: async () => ({ error: 'offline' }) };
+    } });
+    await f.api.setSection('todo');
+    await buttonNamed(f.root, 'List').dispatch('click');
+    const composer = byClass(f.root, 'notebook-task-composer-input');
+    composer.value = 'Unsubmitted task';
+    await composer.dispatch('input');
+    const left = await f.api.setSection('notes');
+    assert.equal(left, !failure);
+    const saved = f.calls.filter(call => call.method === 'PUT').at(-1);
+    assert.deepEqual(saved.body.tasks.map(task => task.text), ['Unsubmitted task']);
+    if (failure) assert.equal(byClass(f.root, 'notebook-task-input').value, 'Unsubmitted task');
+  }
+});
+
+test('Todo completion moves the same editable row and updates counts without losing its input', async () => {
+  const todo = note({ id: 'grouped-todo', kind: 'todo', title: 'List', markdown: '', tasks: [
+    { id: 'open', text: 'Open task', done: false }, { id: 'done', text: 'Done task', done: true },
+  ] });
+  const f = await fixture({ items: [todo] });
+  await f.api.setSection('todo');
+  await buttonNamed(f.root, 'List').dispatch('click');
+  const row = byClass(f.root, 'notebook-task-row');
+  const field = byClass(row, 'notebook-task-input');
+  const checkbox = row.children[0];
+  field.value = 'Edited task'; await field.dispatch('input');
+  checkbox.checked = true; await checkbox.dispatch('change');
+  assert.equal(row.parentNode, byClass(f.root, 'notebook-done-tasks'));
+  assert.equal(field.value, 'Edited task');
+  assert.equal(byClass(f.root, 'notebook-task-progress').value, 2);
+  assert.equal(byClass(f.root, 'notebook-completed-label').textContent, 'Completed 2');
+  await buttonNamed(f.root, 'Add task').dispatch('click');
+  const added = f.root.querySelectorAll('.notebook-task-input').find(input => input.value === '');
+  assert.equal(f.root.ownerDocument.activeElement, added);
+  assert.equal(await f.api.whenIdle(), true);
 });
 
 test('notebook and todo labels follow the desktop language supplied by the shell', async () => {

@@ -8,10 +8,14 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   crypto: ^3.0.3
   file_selector: ^1.0.3
   http: ^1.2.1
   uuid: ^4.4.0
+  mobile_scanner: 7.2.0
+  shared_preferences: ^2.5.3
 dev_dependencies:
   flutter_test:
     sdk: flutter

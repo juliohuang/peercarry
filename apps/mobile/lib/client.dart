@@ -8,8 +8,8 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import 'models.dart';
 
-class SyncHttpException implements Exception {
-  SyncHttpException(this.statusCode);
+class PeerCarryHttpException implements Exception {
+  PeerCarryHttpException(this.statusCode);
   final int statusCode;
   @override
   String toString() => '服务返回 HTTP $statusCode';
@@ -21,8 +21,8 @@ class _PendingUpload {
   String? id;
 }
 
-class SyncClient {
-  SyncClient(
+class PeerCarryClient {
+  PeerCarryClient(
       {required String baseUrl,
       this.sharedToken,
       required this.deviceId,
@@ -56,12 +56,11 @@ class SyncClient {
 
   void dispose() => _transport.close();
   Uri _uri(String path) => Uri.parse('$baseUrl$path');
-  // Keep legacy x-syncclip-* wire headers for compatibility with existing peers.
   Map<String, String> _headers({bool device = false}) => {
-        if (sharedToken?.isNotEmpty == true) 'x-syncclip-token': sharedToken!,
-        if (device) 'x-syncclip-device-id': deviceId,
+        if (sharedToken?.isNotEmpty == true) 'x-peercarry-token': sharedToken!,
+        if (device) 'x-peercarry-device-id': deviceId,
         if (device && deviceToken?.isNotEmpty == true)
-          'x-syncclip-device-token': deviceToken!,
+          'x-peercarry-device-token': deviceToken!,
       };
   Future<http.Response> _request(String method, String path,
       {bool device = false,
@@ -97,7 +96,7 @@ class SyncClient {
 
   static void _check(http.Response response) {
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw SyncHttpException(response.statusCode);
+      throw PeerCarryHttpException(response.statusCode);
     }
   }
 
@@ -107,7 +106,9 @@ class SyncClient {
     final r = await _request('GET', '/v1/hello');
     _check(r);
     final data = _object(r);
-    if (data['protocol'] != 1) throw const FormatException('不支持该电脑的协议版本');
+    if (data['protocol'] != 2) {
+      throw const FormatException('协议版本不匹配，请同步更新手机和电脑');
+    }
     return Hello.fromJson(data);
   }
 
@@ -163,7 +164,7 @@ class SyncClient {
       e is TimeoutException ||
       e is http.ClientException ||
       e is SocketException ||
-      (e is SyncHttpException &&
+      (e is PeerCarryHttpException &&
           [408, 429, 500, 502, 503, 504].contains(e.statusCode));
   Future<UploadStatus> _status(String id, int size,
           {int minimum = 0, int? maximum}) async =>
@@ -230,7 +231,7 @@ class SyncClient {
           break;
         } catch (e) {
           if (!_retryable(e) &&
-              !(e is SyncHttpException && e.statusCode == 409)) {
+              !(e is PeerCarryHttpException && e.statusCode == 409)) {
             rethrow;
           }
           current =

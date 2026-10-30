@@ -1,0 +1,20 @@
+[
+  {
+    "file": "01-notes.png",
+    "width": 1586,
+    "height": 992,
+    "sha256": "e8a35e575de0dffbdfc57579d711a166b3bcf61527c4c20f0172f3653504d0e8"
+  },
+  {
+    "file": "02-todo.png",
+    "width": 1586,
+    "height": 992,
+    "sha256": "f8c19d4843c2467801aaa47e2004875116fa4d11d4db8429f8346abc9ac260b7"
+  },
+  {
+    "file": "03-device-clipboard.png",
+    "width": 1586,
+    "height": 992,
+    "sha256": "9f3950c2a6949622185ee02be389af564cfc6120261b1798a002156b27a8e042"
+  }
+]

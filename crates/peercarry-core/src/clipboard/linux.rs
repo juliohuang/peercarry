@@ -141,7 +141,7 @@ mod tests {
 
     #[test]
     fn round_trip_with_spaces_and_unicode() {
-        let original = "/tmp/sync clip 测试/文件 (1).txt";
+        let original = "/tmp/peercarry 测试/文件 (1).txt";
         let encoded = encode_path(Path::new(original));
         assert!(!encoded.contains(' '));
         assert_eq!(decode_path(&encoded), original);

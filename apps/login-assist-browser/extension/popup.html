@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><title>PeerCarry 登录协助</title>
+<link rel="stylesheet" href="popup.css">
+<body><h1>PeerCarry 登录协助</h1>
+<p id="origin">未连接</p>
+<label for="bind">电脑私网 IP 与端口</label><input id="bind" placeholder="例如 100.x.x.x:5198" autocomplete="off">
+<label class="confirm"><input type="checkbox" id="confirm">我已停止其他自动化，允许手机操作当前标签页</label>
+<div class="actions"><button id="start">开始配对</button><button id="stop" disabled>结束接管</button></div>
+<img id="qr" alt="一次性配对二维码" hidden>
+<details><summary>手动配对资料</summary><textarea id="ticket" readonly rows="5" spellcheck="false"></textarea></details>
+<output id="status" role="status">未开始</output>
+<script type="module" src="popup.js"></script></body></html>

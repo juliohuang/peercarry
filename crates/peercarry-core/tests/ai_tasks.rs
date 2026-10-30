@@ -107,8 +107,8 @@ async fn http_gates_dedup_and_outbox_replay() {
 
     let remote_post = client
         .post(&endpoint)
-        .header("x-syncclip-token", token)
-        .header("x-syncclip-ai-hook", "1")
+        .header("x-peercarry-token", token)
+        .header("x-peercarry-ai-hook", "1")
         .header("x-test-remote", "100.64.0.2:1")
         .json(&event)
         .send()
@@ -117,8 +117,8 @@ async fn http_gates_dedup_and_outbox_replay() {
     assert_eq!(remote_post.status(), StatusCode::FORBIDDEN);
     let browser_post = client
         .post(&endpoint)
-        .header("x-syncclip-token", token)
-        .header("x-syncclip-ai-hook", "1")
+        .header("x-peercarry-token", token)
+        .header("x-peercarry-ai-hook", "1")
         .header("origin", "https://example.test")
         .json(&event)
         .send()
@@ -127,7 +127,7 @@ async fn http_gates_dedup_and_outbox_replay() {
     assert_eq!(browser_post.status(), StatusCode::FORBIDDEN);
     let missing_hook = client
         .post(&endpoint)
-        .header("x-syncclip-token", token)
+        .header("x-peercarry-token", token)
         .json(&event)
         .send()
         .await
@@ -135,8 +135,8 @@ async fn http_gates_dedup_and_outbox_replay() {
     assert_eq!(missing_hook.status(), StatusCode::FORBIDDEN);
     let malformed = client
         .post(&endpoint)
-        .header("x-syncclip-token", token)
-        .header("x-syncclip-ai-hook", "1")
+        .header("x-peercarry-token", token)
+        .header("x-peercarry-ai-hook", "1")
         .json(&json!({"id":"bad"}))
         .send()
         .await
@@ -145,8 +145,8 @@ async fn http_gates_dedup_and_outbox_replay() {
 
     let created = client
         .post(&endpoint)
-        .header("x-syncclip-token", token)
-        .header("x-syncclip-ai-hook", "1")
+        .header("x-peercarry-token", token)
+        .header("x-peercarry-ai-hook", "1")
         .json(&event)
         .send()
         .await
@@ -154,8 +154,8 @@ async fn http_gates_dedup_and_outbox_replay() {
     assert_eq!(created.status(), StatusCode::CREATED);
     let duplicate = client
         .post(&endpoint)
-        .header("x-syncclip-token", token)
-        .header("x-syncclip-ai-hook", "1")
+        .header("x-peercarry-token", token)
+        .header("x-peercarry-ai-hook", "1")
         .json(&event)
         .send()
         .await
@@ -175,7 +175,7 @@ async fn http_gates_dedup_and_outbox_replay() {
     assert_eq!(no_token.status(), StatusCode::UNAUTHORIZED);
     let shared = client
         .get(format!("{url}/v1/ai/events"))
-        .header("x-syncclip-token", token)
+        .header("x-peercarry-token", token)
         .header("x-test-remote", "100.64.0.2:1")
         .send()
         .await

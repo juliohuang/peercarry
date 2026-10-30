@@ -205,7 +205,7 @@ test('storage failure keeps an explicit target in memory and fetch denial stays 
 });
 
 test('timeline keyboard handling refreshes search Enter, applies page Enter, and ignores IME Enter', () => {
-  const start = html.indexOf("document.addEventListener('keydown'");
+  const start = html.indexOf("document.addEventListener('keydown'", html.indexOf('function moveSelection('));
   const end = html.indexOf('/* ------------------------------------------------------------ AI task alerts */', start);
   assert.ok(start >= 0 && end > start, 'keyboard handler markers should exist');
   const elements = new Map();

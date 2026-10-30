@@ -167,6 +167,7 @@ pub(crate) fn trusted_desktop_request(request: &Request) -> bool {
             | "/assets/transfer-center.js"
             | "/assets/notebook.js"
             | "/assets/notebook.css"
+            | "/assets/desktop-theme.css"
             | "/v1/timeline"
             | "/v1/peers"
             | "/v1/actions/apply"
@@ -174,11 +175,18 @@ pub(crate) fn trusted_desktop_request(request: &Request) -> bool {
             | "/v1/actions/fetch-clipboard"
             | "/v1/desktop/settings"
             | "/v1/desktop/settings/restart"
+            | "/v1/desktop/language"
             | "/v1/ai/overview"
             | "/v1/ai/receiver"
             | "/v1/ai/tools"
             | "/v1/ai/bind"
+            | "/v1/mobile/status"
+            | "/v1/mobile/pairing"
+            | "/v1/mobile/stop"
     ) || notebook_path
+        || path
+            .strip_prefix("/v1/mobile/devices/")
+            .is_some_and(|id| !id.is_empty() && !id.contains('/'))
         || path == "/v1/transfers"
         || path.starts_with("/v1/transfers/");
     if !desktop_path || !is_loopback_request(request) {
@@ -288,17 +296,36 @@ async fn quick_ui() -> Html<&'static str> {
     Html(include_str!("../quick.html"))
 }
 
+async fn desktop_ui_style() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+        include_str!("../desktop-theme.css"),
+    )
+}
+
 async fn locale_ui_script() -> impl IntoResponse {
     (
-        [(
-            header::CONTENT_TYPE,
-            "application/javascript; charset=utf-8",
-        )],
-        concat!(
+        [
+            (
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        format!(
+            "window.__PEERCARRY_LOCALE__ = {};\n{}\n{}",
+            serde_json::to_string(&crate::locale::current_details())
+                .expect("language metadata is serializable"),
             include_str!("../ui-locale.js"),
-            "\n",
             include_str!("../device-preferences.js")
         ),
+    )
+}
+
+async fn desktop_language() -> impl IntoResponse {
+    (
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(crate::locale::current_details()),
     )
 }
 
@@ -1389,6 +1416,8 @@ pub fn router(state: AppState) -> Router {
 
     let desktop_tools = Router::new()
         .route("/quick", get(quick_ui))
+        .route("/v1/desktop/language", get(desktop_language))
+        .route("/assets/desktop-theme.css", get(desktop_ui_style))
         .route("/assets/ui-locale.js", get(locale_ui_script))
         .route("/assets/transfer-center.js", get(transfer_ui_script))
         .layer(middleware::from_fn(crate::ai_monitor::local_gate));
@@ -1663,6 +1692,55 @@ mod tests {
     }
 
     #[test]
+    fn desktop_theme_and_phone_controls_preserve_local_origin_boundary() {
+        use super::*;
+        for path in [
+            "/assets/desktop-theme.css",
+            "/v1/desktop/language",
+            "/v1/mobile/status",
+            "/v1/mobile/pairing",
+            "/v1/mobile/stop",
+            "/v1/mobile/devices/test-device",
+        ] {
+            for (peer, host, origin, site, expected) in [
+                ("127.0.0.1:1234", "127.0.0.1:5199", None, "none", true),
+                (
+                    "127.0.0.1:1234",
+                    "127.0.0.1:5199",
+                    Some("http://127.0.0.1:5199"),
+                    "same-origin",
+                    true,
+                ),
+                ("100.64.0.8:1234", "127.0.0.1:5199", None, "none", false),
+                ("127.0.0.1:1234", "other.example", None, "none", false),
+                (
+                    "127.0.0.1:1234",
+                    "127.0.0.1:5199",
+                    Some("https://other.example"),
+                    "cross-site",
+                    false,
+                ),
+            ] {
+                let mut request = Request::builder()
+                    .uri(path)
+                    .header(header::HOST, host)
+                    .header("sec-fetch-site", site)
+                    .body(Body::empty())
+                    .unwrap();
+                request
+                    .extensions_mut()
+                    .insert(ConnectInfo(peer.parse::<SocketAddr>().unwrap()));
+                if let Some(origin) = origin {
+                    request
+                        .headers_mut()
+                        .insert(header::ORIGIN, origin.parse().unwrap());
+                }
+                assert_eq!(trusted_desktop_request(&request), expected, "{peer} {host}");
+            }
+        }
+    }
+
+    #[test]
     fn restart_command_preserves_launch_mode_and_parent_identity() {
         use super::*;
         for arguments in [
@@ -1730,17 +1808,28 @@ mod tests {
             response.headers()[header::CONTENT_TYPE],
             "application/javascript; charset=utf-8"
         );
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
+        let text = std::str::from_utf8(&body).unwrap();
+        let (bootstrap, script) = text.split_once('\n').unwrap();
+        let metadata: serde_json::Value = serde_json::from_str(
+            bootstrap
+                .strip_prefix("window.__PEERCARRY_LOCALE__ = ")
+                .unwrap()
+                .trim_end_matches(';'),
+        )
+        .unwrap();
+        assert_eq!(metadata.as_object().unwrap().len(), 3);
+        assert!(matches!(metadata["language"].as_str(), Some("zh" | "en")));
         assert_eq!(
-            body.as_ref(),
+            script,
             concat!(
                 include_str!("../ui-locale.js"),
                 "\n",
                 include_str!("../device-preferences.js")
             )
-            .as_bytes()
         );
     }
 

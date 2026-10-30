@@ -1,26 +1,18 @@
-﻿# PeerCarry Mobile — M0
+# PeerCarry Mobile — M0
 
-Flutter Android-first 客户端。支持手动连接电脑、查看共享历史、显式复制文本、发送文本、选择单个文件并分块上传。接收历史不会自动覆盖剪贴板。
+Flutter Android-first 客户端。支持扫码连接电脑、局域网优先与加密中继回退、查看共享历史、显式复制文本、发送文本、选择单个文件并分块上传。接收历史不会自动覆盖剪贴板。
 
 ## 连接电脑
 
-手机和电脑先加入同一可信 Tailscale 网络，电脑运行包含移动上传接口的新版本服务。在电脑数据目录的 config.toml 合并以下配置，然后重启服务：
+推荐：电脑时间线打开“连接手机”并生成二维码，手机“设备 → 扫码连接电脑”核对名称后确认。同一局域网直接连接，跨网可使用电脑配置的自建 FRP TCP 中继。手机不需要 Tailscale；HTTPS 证书通过配对码固定，TLS 在电脑终止。
 
-```toml
-[mobile]
-enabled = true
-max_storage_bytes = 8589934592
-max_sessions = 128
-session_ttl_secs = 86400
+配对码有效期 5 分钟、只用于一台手机。会话最长 24 小时，连接信息仅在内存保留，任一端重启需重扫。电脑支持撤销单台设备和停止全部手机连接。[详细说明及部署模板](../../docs/mobile-connect.md)。
 
-[[mobile.devices]]
-id = "my-phone"
-token = "REPLACE_WITH_A_RANDOM_SECRET_OF_AT_LEAST_32_CHARACTERS"
-```
+没有相机时，可在电脑复制配对内容，在手机选择“手动输入配对码”。两种入口使用同一套配对与 TLS 连接，不需要填写地址、共享密钥或设备 token。
 
-示例 token 是占位符，必须换成随机密钥。在手机填写电脑的 Tailscale HTTP 地址（默认端口 5199）、设备 ID、设备 token。如果电脑配置了 network.auth_token，同时填写共享 token。不要使用公开互联网明文 HTTP；Android 允许 HTTP 是为兼容 Tailscale 内的现有协议。
+手机界面已移除旧的手动地址/token 连接。旧部署请升级电脑端并生成新的配对码。桌面服务的旧上传接口暂留兼容；扫码不会开启它，也不使用旧的 `[mobile.devices]` 授权。
 
-设备 token 仅授权上传接口；历史和文本接口沿用现有共享 token 策略。该版本没有扫码配对或细粒度历史访问权限。连接信息仅保存在内存。
+登录协助标为实验功能，采用独立配对与授权，仅限合成测试资料；尚未完成真实手机和外部 AI 执行器验收。账号库仍是独立开发组件，未接入应用导航和同步服务。
 
 ## 传输与限制
 

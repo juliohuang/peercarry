@@ -63,7 +63,7 @@ function settingsEnvelope(s) {
   const values = { apps: [] };
   for (const field of fields) {
     if (!field.path || field.type === 'password') continue;
-    values[field.path] = field.type === 'bool' ? false : field.type === 'number' ? 1 : optional.has(field.path) ? null : '';
+    values[field.path] = field.type === 'language' ? 'system' : field.type === 'bool' ? false : field.type === 'number' ? 1 : optional.has(field.path) ? null : '';
   }
   return { schema: 1, revision: 'synthetic-revision', values, secrets: { 'network.auth_token': true, ai_token: false } };
 }
@@ -170,6 +170,7 @@ test('notebook settings loads and focuses authentication, then returns after sav
   assert.equal(elements.get('cfgform').authInput.focused, true);
   assert.equal(elements.get('cfgform').authInput.scrolled, true);
   assert.equal(elements.get('cfg-return').hidden, false);
+  assert.equal(elements.get('cfg-sync-help').hidden, false);
   assert.equal(elements.get('cfg-return').textContent, '返回笔记');
   await s.saveConfig(false);
   assert.equal(calls.filter(call => call.url === '/v1/desktop/settings' && call.options.method === 'POST').length, 1);
@@ -187,6 +188,14 @@ test('settings entry does not load configuration when a notebook draft cannot be
   assert.equal(calls.some(call => call.url === '/v1/desktop/settings'), false);
   assert.equal(await elements.get('tab-settings').onclick(), false);
   assert.equal(calls.some(call => call.url === '/v1/desktop/settings'), false);
+});
+
+test('ordinary settings entry keeps language controls free of sync setup help', async () => {
+  const api = { setSection: async () => true, setVisible() {}, whenIdle: async () => true };
+  const { s, elements } = await workspace('en', 'en-US', api);
+  assert.equal(await s.openSettings(), true);
+  assert.equal(elements.get('cfg-sync-help').hidden, true);
+  assert.equal(elements.get('cfg-return').hidden, true);
 });
 
 test('a failed configuration load cannot save stale settings and still allows returning', async () => {
@@ -242,4 +251,89 @@ test('timeline copy reports failure and ignores a duplicate request', async () =
   assert.equal(calls.filter(call => call.url === '/v1/actions/apply').length, 1);
   release(); await first;
   assert.equal(elements.get('toast').textContent, 'Could not copy. Try again.');
+});
+
+test('device clipboard and legacy workspace share the complete device and file UI', async () => {
+  const sections = [];
+  const api = { setSection: async section => { sections.push(section); return true; }, setVisible() {}, whenIdle: async () => true };
+  const { s, elements, calls } = await workspace('en', 'en-US', api);
+  await s.showTab('device-clipboard');
+  assert.equal(elements.get('notebook-view').hidden, true);
+  for (const id of ['timeline', 'remote-capture', 'file-share', 'history-header']) assert.equal(elements.get(id).hidden, false, id);
+  assert.equal(elements.get('tab-device-clipboard').attributes['aria-current'], 'page');
+  assert.equal(sections.includes('clipboard'), false);
+  assert.equal(calls.some(call => call.options.method === 'POST'), false);
+  await s.showTab('timeline');
+  assert.equal(elements.get('tab-device-clipboard').attributes['aria-current'], 'page');
+});
+
+test('device source filtering keeps the original entry IDs for keyboard selection, Copy and Send', async () => {
+  const { s, elements, calls } = await workspace('en', 'en-US');
+  elements.get('remote-peer').value = 'peer-b';
+  vm.runInContext("remotePeers=[{node_id:'peer-b',host:'Peer B',online:true}]; entries=[{id:'a',created_at:'2026-10-29T01:00:00Z',origin:{node_id:'peer-a'}},{id:'b',created_at:'2026-10-29T01:00:00Z',origin:{node_id:'peer-b'}},{id:'c',created_at:'2026-10-29T01:00:00Z',origin:{node_id:'peer-b'}}]; historyScope='device'; sel=0; render()", s);
+  assert.deepEqual(Array.from(s.visibleIndexes()), [1, 2]);
+  assert.equal(vm.runInContext('sel', s), 1);
+  s.moveSelection(1);
+  assert.equal(vm.runInContext('sel', s), 2);
+  s.moveSelection(1);
+  assert.equal(vm.runInContext('sel', s), 2);
+  assert.equal(calls.some(call => call.options.method === 'POST'), false);
+  await s.apply(vm.runInContext('sel', s));
+  assert.equal(JSON.parse(calls.find(call => call.url === '/v1/actions/apply').options.body).id, 'c');
+  await s.sendEntry(vm.runInContext('entries[sel]', s));
+  const queued = JSON.parse(calls.find(call => call.url === '/v1/transfers' && call.options.method === 'POST').options.body);
+  assert.equal(queued.entry_id, 'c');
+  assert.equal(queued.node_id, 'peer-b');
+});
+
+test('compact secondary navigation toggles and closes after choosing a page', async () => {
+  const { s, elements } = await workspace('en', 'en-US');
+  elements.get('nav-toggle').onclick();
+  assert.equal(elements.get('nav-toggle').attributes['aria-expanded'], 'true');
+  elements.get('app-content').scrollTop = 1200;
+  await s.showTab('transfers');
+  assert.equal(elements.get('nav-toggle').attributes['aria-expanded'], 'false');
+  assert.equal(elements.get('transfers').hidden, false);
+  assert.equal(elements.get('app-content').scrollTop, 0);
+});
+
+test('a language notification waits for notebook drafts and returns to the same section after a safe reload', async () => {
+  let ready = false, checks = 0, reloads = 0;
+  const notebook = { setSection: async () => true, setVisible() {}, whenIdle: async () => { checks++; return ready; } };
+  const { s, calls } = await workspace('en', 'en-US', notebook);
+  const stored = new Map();
+  s.sessionStorage = { setItem: (key, value) => stored.set(key, value) };
+  s.location = { reload: () => { reloads++; } };
+  s.fetch = async (url, options = {}) => { calls.push({ url, options }); return { ok: true, json: async () => ({ language: 'zh' }) }; };
+  assert.equal(await s.PeerCarryLocale.checkForChange(), false);
+  assert.equal(checks, 1);
+  assert.equal(reloads, 0);
+  ready = true;
+  assert.equal(await s.PeerCarryLocale.retry(), true);
+  assert.equal(reloads, 1);
+  assert.equal(stored.get('peercarry.language.return-tab'), 'notes');
+  assert.equal(calls.some(call => call.options.method === 'POST'), false);
+});
+
+test('language reload waits for phone pairing, keeps the QR until consumed and never persists its ticket', async () => {
+  const { s, elements } = await workspace('en', 'en-US');
+  let release, reloads = 0, pairing = 'waiting';
+  s.location = { reload: () => { reloads++; } };
+  const writes = [];
+  s.localStorage.setItem = (...args) => writes.push(args);
+  s.fetch = async (url) => {
+    if (url === '/v1/desktop/language') return { ok: true, json: async () => ({ language: 'zh' }) };
+    if (url === '/v1/mobile/pairing') return new Promise(resolve => { release = () => resolve({ ok: true, json: async () => ({ ticket: { secret: 'synthetic-code', expires_at: Math.floor(Date.now()/1000) + 300 }, qr_svg: '<svg/>' }) }); });
+    return { ok: true, json: async () => ({ running: true, devices: [], pairing }) };
+  };
+  const request = elements.get('mobile-pair').onclick();
+  assert.equal(await s.PeerCarryLocale.checkForChange(), false);
+  release(); await request;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reloads, 0);
+  assert.equal(elements.get('mobile-qr-area').hidden, false);
+  pairing = 'used'; await s.loadMobileStatus();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reloads, 1);
+  assert.equal(JSON.stringify(writes).includes('synthetic-code'), false);
 });

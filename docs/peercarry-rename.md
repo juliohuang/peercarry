@@ -1,21 +1,22 @@
-# PeerCarry 更名与兼容说明
+# PeerCarry 更名与不兼容说明
 
-项目源码、Rust crate、Flutter 包、应用名称、CLI、构建和发布脚本统一采用 PeerCarry / peercarry。GitHub 仓库地址尚未确定，不在 Cargo 元数据中填入猜测地址。
+项目源码、Rust crate、Flutter 包、应用名称、CLI、构建和发布脚本统一采用 PeerCarry / `peercarry`。Cargo 仓库元数据指向 `https://github.com/juliohuang/peercarry`；这只说明当前配置的仓库地址，不代表外部发布状态已验证。
 
-## 有意保留的兼容标识
+## 当前标识
 
-- `x-syncclip-*` HTTP 头：保留已有设备通信兼容性。
-- `SYNC_CLIP_DATA_DIR`：仍可使用；新变量 `PEERCARRY_DATA_DIR` 优先。
-- 已有 `sync-clip` 数据和下载目录：继续使用，不移动正在使用的数据库。全新安装使用 `peercarry`。
-- `sclip`：保留 CLI 兼容入口；Windows 安装器更新旧目录中的同名程序，避免旧 Hook 路径失效。
-- `sync-clip-ai`：Hook 归属标识保持稳定，避免重复安装或无法解绑。
-- 自动化互斥锁旧名称：防止新旧进程同时操作桌面。
+- 数据目录只使用 `PEERCARRY_DATA_DIR`；未设置时使用平台默认 `peercarry` 目录。不会读取 `SYNC_CLIP_DATA_DIR`，不会回退到 `sync-clip` 目录，也不会自动迁移旧数据库、配置或下载目录。
+- HTTP 使用 `x-peercarry-*` 请求头；旧 `x-syncclip-*` 客户端/服务端不兼容。桌面 hello 与手机 hello 的协议版本为 v2，客户端和服务端必须同步升级，v1 对端会被拒绝。
+- CLI 命令为 `peercarry`；安装器不安装或复制 `sclip` 别名。旧 `sclip` 脚本需手动改为 `peercarry`。
+- AI Hook binding 使用 `peercarry-ai`。旧 `sync-clip-ai` binding 和既有 Hook 配置不会自动迁移；请按新命令重新配置。
+- 安装位置与启动项只使用 PeerCarry 名称和路径。安装器不检测、停止、迁移或清理旧 `sync-clip` 程序、目录或注册项。
 
-## 升级注意
+## 升级要求
 
-更名前后的程序不能同时使用同一数据库。Windows 安装器会停止对应安装目录里的旧托盘，保留配置和数据，再更新启动项。Linux/macOS 需先退出旧程序并移除旧服务，再安装新服务；本轮未进行两平台实机升级验收。
+旧程序与新程序不可同时运行。升级前请先手动停止并卸载旧程序及旧服务，再安装 PeerCarry；随后重新配置 `PEERCARRY_DATA_DIR`、CLI 脚本和 `peercarry-ai` Hook。旧数据、配置、下载目录和 bindings 不会自动迁移，需要用户自行决定是否手动搬迁；不要让两个版本同时打开同一个数据库。
 
-现有自动更新订阅地址不会因为改名自动改变；正式发布前需配置新仓库的下载地址、签名公钥和渠道清单。手机包标识已更名，旧手机应用数据不会自动迁移。
+所有参与通信的 PeerCarry 桌面端和手机端都必须切换到协议 v2。新客户端不能与仍使用 v1 的旧服务通信；安装包版本号或同一 tailnet 不能替代协议版本检查。
+
+现有自动更新订阅地址不会因为改名自动改变；正式发布仍需核对下载地址、签名公钥和渠道清单。本说明不声明外部仓库、安装包或更新渠道已完成发布验收。手机包标识已更名，旧手机应用数据不会自动迁移。
 
 ## 首次公开源码
 

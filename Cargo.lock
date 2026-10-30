@@ -3037,6 +3037,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "peercarry-login-assist"
+version = "0.3.1"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "hex",
+ "image",
+ "rand 0.9.5",
+ "rcgen",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.20",
+ "tokio",
+ "tokio-rustls",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
 name = "peercarry-tray"
 version = "0.3.1"
 dependencies = [
@@ -3077,6 +3098,18 @@ dependencies = [
  "serde_json",
  "sha2",
  "tokio",
+]
+
+[[package]]
+name = "peercarry-vault"
+version = "0.3.1"
+dependencies = [
+ "hex",
+ "ring",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "zeroize",
 ]
 
 [[package]]

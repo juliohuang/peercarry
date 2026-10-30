@@ -50,6 +50,25 @@ function choose(f, id = 'stable-device-id') {
   f.elements.get('device').value = id;
   f.elements.get('device').onchange();
 }
+
+test('language reload waits until an explicit send finishes and does not submit it again', async () => {
+  const f = await fixture(false, false, { native: 'en' });
+  choose(f);
+  let release, reloads = 0;
+  f.sandbox.location = { reload: () => { reloads++; } };
+  f.sandbox.fetch = async (path, options = {}) => {
+    f.calls.push({ path, options });
+    if (path === '/v1/transfers') return new Promise(resolve => { release = () => resolve({ ok: true, json: async () => ({ ok: true }) }); });
+    return { ok: true, json: async () => path === '/v1/desktop/language' ? { language: 'zh' } : [] };
+  };
+  const send = f.elements.get('send').onclick();
+  assert.equal(await f.sandbox.PeerCarryLocale.checkForChange(), false);
+  assert.equal(reloads, 0);
+  release(); await send;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reloads, 1);
+  assert.equal(f.calls.filter(call => call.path === '/v1/transfers').length, 1);
+});
 test('an offline target can be queued but cannot have its current clipboard fetched', async () => {
   const f = await fixture(false);
   assert.equal(f.elements.get('send').disabled, true);

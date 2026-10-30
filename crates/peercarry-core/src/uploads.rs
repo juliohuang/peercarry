@@ -266,11 +266,11 @@ async fn authorize(State(s): State<UploadState>, mut req: Request, next: Next) -
     }
     let id = req
         .headers()
-        .get("x-syncclip-device-id")
+        .get("x-peercarry-device-id")
         .and_then(|v| v.to_str().ok());
     let token = req
         .headers()
-        .get("x-syncclip-device-token")
+        .get("x-peercarry-device-token")
         .and_then(|v| v.to_str().ok());
     let owner = s.app.config.mobile.devices.iter().find(|d| {
         Some(d.id.as_str()) == id && !d.token.is_empty() && Some(d.token.as_str()) == token

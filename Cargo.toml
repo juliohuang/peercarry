@@ -6,6 +6,8 @@ members = [
     "crates/peercarry-tray",
     "crates/peercarry-automation",
     "crates/peercarry-updater",
+    "crates/peercarry-login-assist",
+    "crates/peercarry-vault",
 ]
 
 [workspace.package]

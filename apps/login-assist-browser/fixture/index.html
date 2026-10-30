@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>PeerCarry login assist P0 fixture</title>
+<style>body{font:18px system-ui;max-width:640px;margin:48px auto}label{display:block;margin:16px 0}input,button{font:inherit;padding:8px}output{display:block;margin:24px 0}</style>
+<h1>Local login fixture — synthetic input only</h1>
+<p>No login service, network submission, storage, clipboard or AI connection.</p>
+<form onsubmit="return false">
+<label>Account <input id="account" type="text" data-login-field="account" autocomplete="off"></label>
+<label>Password <input id="password" type="password" data-login-field="password" autocomplete="off"></label>
+<label>OTP <input id="otp" type="text" data-login-field="otp" autocomplete="off"></label>
+</form>
+<button id="run" type="button">Run local DOM checks</button><output id="result">Not run</output>
+<script type="module">
+import { FillSession, TEST_ORIGIN } from './generated/fill.js';
+import { bindTestInput } from './generated/dom-target.js';
+document.getElementById('run').onclick = () => {
+  const result = document.getElementById('result');
+  const check = (condition, label) => { if (!condition) throw new Error(label); };
+  try {
+    check(location.origin === TEST_ORIGIN, 'Serve on http://127.0.0.1:5188');
+    let count = 0;
+    for (const kind of ['account', 'password', 'otp']) {
+      const binding = { tabId: 1, documentId: 'fixture-doc', frameId: 0,
+        origin: TEST_ORIGIN, fieldId: kind, fieldKind: kind, epoch: 1 };
+      const input = document.getElementById(kind);
+      let events = 0;
+      input.addEventListener('input', () => events++, { once: true });
+      const target = bindTestInput(document, binding);
+      const session = new FillSession({ id: kind, expiresAt: Date.now() + 5000, binding });
+      const command = { commandId: kind, grantId: kind, binding, value: 'fixture-only-123' };
+      check(session.execute(command, target).ok, kind + ' fill');
+      check(input.value === 'fixture-only-123' && events === 1, kind + ' DOM value/event');
+      check(!session.execute(command, target).ok, kind + ' replay');
+      input.value = '';
+      const changed = new FillSession({ id: kind, expiresAt: Date.now() + 5000, binding });
+      input.type = kind === 'password' ? 'text' : 'password';
+      check(!changed.execute(command, target).ok && input.value === '', kind + ' changed type');
+      input.type = kind === 'password' ? 'password' : 'text';
+      count += 4;
+    }
+    result.textContent = `PASS: ${count} real DOM checks; synthetic values cleared`;
+    result.dataset.passed = 'true';
+  } catch (error) { result.textContent = 'FAIL: ' + error.message; result.dataset.passed = 'false'; }
+};
+</script></html>

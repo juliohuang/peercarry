@@ -41,11 +41,17 @@ test('dates use the selected display locale', () => {
 test('shared locale prefers the native language and otherwise follows browser preferences', () => {
   const native = { navigator: { languages: ['en-US'], language: 'en' }, __PEERCARRY_LANG__: 'zh' };
   vm.runInNewContext(localeSource, native);
-  assert.deepEqual({ ...native.PeerCarryLocale }, { language: 'zh', locale: 'zh-CN', isChinese: true });
+  assert.deepEqual(
+    ['language', 'locale', 'isChinese'].map(key => native.PeerCarryLocale[key]),
+    ['zh', 'zh-CN', true],
+  );
 
   const browser = { navigator: { languages: ['zh-TW', 'en'], language: 'en' } };
   vm.runInNewContext(localeSource, browser);
-  assert.deepEqual({ ...browser.PeerCarryLocale }, { language: 'zh', locale: 'zh-CN', isChinese: true });
+  assert.deepEqual(
+    ['language', 'locale', 'isChinese'].map(key => browser.PeerCarryLocale[key]),
+    ['zh', 'zh-CN', true],
+  );
 });
 
 test('completed or expired jobs cannot be replayed through the UI', () => {

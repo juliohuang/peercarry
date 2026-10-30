@@ -17,31 +17,23 @@ use std::path::PathBuf;
 /// * Linux   - `$XDG_DATA_HOME/peercarry` (fallback `~/.local/share/peercarry`)
 /// * Windows - `%APPDATA%\peercarry`
 pub fn data_dir() -> PathBuf {
-    if let Ok(dir) =
-        std::env::var("PEERCARRY_DATA_DIR").or_else(|_| std::env::var("SYNC_CLIP_DATA_DIR"))
-    {
+    if let Ok(dir) = std::env::var("PEERCARRY_DATA_DIR") {
         return PathBuf::from(dir);
     }
-    compatible_dir(dirs::data_dir().unwrap_or_else(|| PathBuf::from(".")))
+    project_dir(dirs::data_dir().unwrap_or_else(|| PathBuf::from(".")))
 }
 
 /// Where files pulled from a remote peer are written.
 pub fn download_dir() -> PathBuf {
-    compatible_dir(
+    project_dir(
         dirs::download_dir()
             .or_else(dirs::home_dir)
             .unwrap_or_else(|| PathBuf::from(".")),
     )
 }
 
-// Reuse existing installations without moving live databases or breaking old hooks.
-fn compatible_dir(base: PathBuf) -> PathBuf {
-    let legacy = base.join("sync-clip");
-    if legacy.is_dir() {
-        legacy
-    } else {
-        base.join("peercarry")
-    }
+fn project_dir(base: PathBuf) -> PathBuf {
+    base.join("peercarry")
 }
 
 pub fn config_path() -> PathBuf {
@@ -79,14 +71,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn legacy_directory_is_reused_without_moving_data() {
+    fn legacy_directory_is_ignored_without_modifying_data() {
         let root = std::env::temp_dir().join(format!("peercarry-paths-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
-        assert_eq!(compatible_dir(root.clone()), root.join("peercarry"));
+        assert_eq!(project_dir(root.clone()), root.join("peercarry"));
         std::fs::create_dir(root.join("sync-clip")).unwrap();
-        assert_eq!(compatible_dir(root.clone()), root.join("sync-clip"));
+        std::fs::write(root.join("sync-clip/fixture.txt"), b"untouched").unwrap();
+        assert_eq!(project_dir(root.clone()), root.join("peercarry"));
         std::fs::create_dir(root.join("peercarry")).unwrap();
-        assert_eq!(compatible_dir(root.clone()), root.join("sync-clip"));
+        assert_eq!(project_dir(root.clone()), root.join("peercarry"));
+        assert_eq!(
+            std::fs::read(root.join("sync-clip/fixture.txt")).unwrap(),
+            b"untouched"
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 

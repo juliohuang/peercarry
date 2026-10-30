@@ -230,7 +230,7 @@ fn hello(port: u16) -> Option<String> {
     }
     let mut q = String::from("GET /v1/hello HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n");
     if let Some(t) = t {
-        q.push_str(&format!("x-syncclip-token: {t}\r\n"));
+        q.push_str(&format!("x-peercarry-token: {t}\r\n"));
     }
     q.push_str("\r\n");
     s.write_all(q.as_bytes()).ok()?;

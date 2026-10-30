@@ -70,7 +70,7 @@ async fn receiver_declaration_requires_auth_and_is_read_only_peer_visible() {
         .get(&url_sel)
         .header("x-test-remote", remote)
         .header(
-            "x-syncclip-ai-token",
+            "x-peercarry-ai-token",
             "a-test-ai-token-that-is-at-least-thirty-two-bytes",
         )
         .send()
@@ -93,7 +93,7 @@ async fn receiver_declaration_requires_auth_and_is_read_only_peer_visible() {
         .get(&url_sel)
         .header("x-test-remote", remote)
         .header(
-            "x-syncclip-ai-token",
+            "x-peercarry-ai-token",
             "a-test-ai-token-that-is-at-least-thirty-two-bytes",
         )
         .send()

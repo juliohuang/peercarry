@@ -7,6 +7,28 @@ import 'package:http/testing.dart';
 import 'package:peercarry_mobile/client.dart';
 
 void main() {
+  test('hello requires the current PeerCarry protocol and headers', () async {
+    for (final version in [1, 2, 3]) {
+      final client = PeerCarryClient(
+          baseUrl: 'http://localhost',
+          deviceId: 'test',
+          sharedToken: 'synthetic-shared',
+          transport: MockClient((request) async {
+            expect(request.headers['x-peercarry-token'], 'synthetic-shared');
+            expect(request.headers.containsKey('x-syncclip-token'), isFalse);
+            return http.Response(jsonEncode({'protocol': version}), 200);
+          }));
+      try {
+        if (version == 2) {
+          await client.hello();
+        } else {
+          await expectLater(client.hello(), throwsFormatException);
+        }
+      } finally {
+        client.dispose();
+      }
+    }
+  });
   test('lost PATCH response recovers confirmed offset without retransmission',
       () async {
     final dir = await Directory.systemTemp.createTemp('upload-test-');
@@ -16,7 +38,9 @@ void main() {
     var patches = 0;
     final transport = MockClient((r) async {
       expect(r.followRedirects, isFalse);
-      expect(r.headers['x-syncclip-device-token'], 'synthetic-token');
+      expect(r.headers['x-peercarry-device-token'], 'synthetic-token');
+      expect(
+          r.headers.keys.any((key) => key.startsWith('x-syncclip-')), isFalse);
       if (r.method == 'PATCH') {
         patches++;
         expect(r.bodyBytes, [1, 2, 3]);
@@ -34,7 +58,7 @@ void main() {
           }),
           200);
     });
-    final client = SyncClient(
+    final client = PeerCarryClient(
         baseUrl: 'http://localhost',
         deviceId: 'test',
         deviceToken: 'synthetic-token',
@@ -53,12 +77,12 @@ void main() {
       'http://localhost/path',
       'http://localhost?token=x'
     ]) {
-      expect(() => SyncClient(baseUrl: url, deviceId: 'test'),
+      expect(() => PeerCarryClient(baseUrl: url, deviceId: 'test'),
           throwsFormatException);
     }
   });
   test('rejects blank and oversized UTF8 text before network', () async {
-    final client = SyncClient(
+    final client = PeerCarryClient(
         baseUrl: 'http://localhost',
         deviceId: 'test',
         transport: MockClient((_) async => throw StateError('must not send')));

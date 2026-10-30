@@ -110,6 +110,13 @@ impl PeerClient {
             });
         }
         let hello: protocol::HelloResponse = resp.json().await?;
+        if hello.protocol != protocol::PROTOCOL_VERSION {
+            return Err(Error::Network(format!(
+                "unsupported peer protocol {}; expected {} (update both devices)",
+                hello.protocol,
+                protocol::PROTOCOL_VERSION
+            )));
+        }
         Ok(hello)
     }
 

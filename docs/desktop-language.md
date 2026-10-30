@@ -1,40 +1,62 @@
-# 桌面中英文自动适配
+# 界面语言
 
-桌面端不需要手动选择语言。启动时读取电脑的首选显示语言，中文语言族显示简体中文，其余语言显示英文；托盘、工作台、快捷面板、AI 提醒、传输中心和设置共用同一结果。页面日期和辅助标签也使用对应语言。设备名称、剪贴板正文、文件名与原始诊断详情保留原文。
+PeerCarry 支持简体中文和 English，默认跟随本设备的系统首选显示语言。中文语言族（含繁体地区）显示简体中文；其他语言、空值或无法识别的语言使用 English。手动选择会保存在本设备，下次启动继续使用；选择“跟随系统 / Follow system”可恢复自动识别。
 
-Windows 使用用户首选 UI 语言接口，不再把地区格式误当成显示语言；macOS 读取 `NSLocale.preferredLanguages` 的第一项。Linux 按消息语言环境变量识别首选语言，包含 `LANGUAGE` 列表和 `LC_ALL`、`LC_MESSAGES`、`LANG` 的优先关系；C/POSIX 语言环境使用英文。环境变量语义参考 [GNU gettext 文档](https://www.gnu.org/software/gettext/manual/html_node/The-LANGUAGE-variable.html)。
+| 入口 | 操作 |
+| --- | --- |
+| 桌面 | 设置 → 语言 / Language → 跟随系统、简体中文、English → 保存 / Save |
+| 桌面小窗口 | 顶部“更多 / More”→ 设置；保存按钮位于设置页顶部 |
+| 手机 | 首页右上角语言按钮 → 跟随系统、简体中文、English，选择后立即保存并切换 |
 
-系统语言修改后，完全退出并重新启动 PeerCarry 生效。原有 `PEERCARRY_LANG=zh` / `en` 诊断覆盖仍可使用。单独从浏览器访问本机页面时，跟随浏览器的第一首选语言；原生窗口始终使用电脑语言，不受浏览器语言影响。
+桌面语言设置本身无需重启服务。托盘、笔记、待办、设备剪贴板、设置、传输记录、AI 提醒和快捷面板使用同一结果；浏览器打开本机页面时也以这台电脑的已保存偏好及系统语言为准。手机首页、连接页、登录协助、扫描页和账号库界面共用同一本地化资源，并包含 Flutter 系统控件的中英文文案。
 
-## 本次验证（2026-09-26）
+语言偏好按设备分别保存，不随笔记同步。设备名称、笔记正文、待办内容、剪贴板正文和文件名保留原文。CLI 和机器接口字段保持原有格式。
 
-- Windows 语言模块 6 项测试通过，包含实际读取 Windows UI 语言接口；托盘和 CLI 开发版构建通过。
-- Linux 在已有 WSL Ubuntu 中直接编译同一语言模块，5 项测试通过。此结果不代表 Linux 托盘或 Wayland 窗口实机验收。
-- 前端 23 项测试通过，覆盖原生中文/浏览器英文、原生英文/浏览器中文、中文变体、非中文回退、首选语言、文案、日期及原有显式发送/复制流程。
-- 桌面接口回归通过：新增语言脚本在本机可加载，认证后的网络对端仍无法访问该本机资源；跨来源控制仍被拒绝。
-- `cargo fmt --all -- --check` 通过。Windows 构建保留原有 `unused_mut` 告警，无新增编译错误。
-- 浏览器只读合成页面验证了中英文工作台（940 × 680）及快捷面板（340 × 420），后者两种语言均无横向溢出；只模拟原生语言注入，未更改系统或浏览器语言，未操作真实剪贴板。
+## Windows 安装版验收（2026-10-30）
 
-macOS 未进行本机编译或真机验证。Windows 原生窗口启动及系统切换后的端到端体验仍需安装后验收；此次没有替换现有安装版本。
+已将 2026-10-29 生成的 Windows x64 本地包安装到当前用户目录。安装器退出码为 0，卸载登记版本和 CLI 均为 `0.3.1`，已安装托盘及 CLI 的 SHA-256 与构建记录一致。安装时原有 4 个数据文件的内容校验未变，登录启动偏好保持不启用。
 
-## 验证入口
+通过 Computer Use 在实际原生窗口完成 10 项界面检查：中文笔记、待办和设备剪贴板布局；默认跟随系统显示中文；选择 English 并保存后主窗口切换；英文快捷面板；完整重启进程后英文仍保留；切回简体中文；已打开的快捷面板在后台同步变为中文；最后恢复并保存“跟随系统”。结束时程序保持运行，主窗口停留在中文笔记首页。
+
+本轮没有修改笔记或待办内容，没有执行剪贴板复制或对端发送操作，也未更改 Windows 显示语言。非中文系统回退仍以此前单元测试和浏览器组合验证为依据。证据为 `target/local-install-20261030/installer.log`、`installation.json` 和 `native-ui-checks.json`；不保存含真实历史内容的界面截图。卸载、真实跨设备传输、手机和其他桌面系统仍未在本轮验收。
+
+## 保存与状态保护
+
+- 桌面选择语言后点击普通“保存”。保存失败时保留设置草稿和当前显示语言；同时修改需重启的配置时，仍按原有重启提示处理。
+- 已打开的主窗口及快捷面板收到语言变更通知后更新；窗口重新获得焦点时也会检查。托盘重新读取本机偏好后更新菜单。
+- 正在输入法组合输入、保存笔记、处理设置草稿、发送/复制/传输文件或展示有效手机配对码时，页面切换会延后；可安全离开后再刷新，避免中断当前操作。切换后恢复原来的页面分区。
+- 手机切换语言通过重建本地化资源生效，保留连接和未发送文本。若偏好存储失败，本次运行仍使用所选语言，并显示固定提示。
+
+桌面配置键为 `[ui].language`，可选 `system`、`zh`、`en`；旧配置未包含该字段时默认 `system`。本机 `/v1/desktop/language` 只返回偏好、系统识别结果和有效语言三个枚举字段，继续受回环地址及来源检查限制；语言资源与状态响应禁止缓存。跨窗口通知只携带变化标记，不写入笔记、剪贴板内容或配对资料。
+
+Windows 读取用户首选 UI 语言；macOS 读取 `NSLocale.preferredLanguages` 第一项；Linux 按消息语言环境变量识别，C/POSIX 使用英文。系统自身可能要求重新登录或重开程序后才更新显示语言。诊断变量 `PEERCARRY_LANG` 仅覆盖“跟随系统”识别，不会压过手动中文/英文偏好，也不会修改操作系统语言。
+
+## 工作区验证记录（2026-10-29）
+
+| 检查 | 结果与边界 |
+| --- | --- |
+| Rust core 全部测试 | 96 通过；包含配置默认值、偏好优先级、语言标签回退、Windows UI 语言读取和本机接口门禁 |
+| Windows 托盘测试 | 14 通过；菜单文案和原生初始化脚本回归 |
+| Node 前端回归 | 119 通过；语言保存失败、跨窗口通知、草稿/配对/发送保护、IME 以及原有显式剪贴板操作 |
+| Flutter 静态检查 | `flutter analyze --no-pub` 无问题 |
+| Flutter 全部测试 | 31 通过，2 个需独立后端环境的测试跳过；含系统语言变化、偏好恢复、连接/草稿保留、英文窄屏及原有隐私行为 |
+| 真实 Edge | 5 组系统/手动偏好与相反浏览器语言组合通过；940×680 与 560×420 均完成选择、保存、重新打开，已打开的快捷面板同步切换 |
+| 构建与格式 | Windows CLI/托盘开发版和隔离探针构建、Rust 格式检查通过；保留既有编译告警 |
+
+日志和合成浏览器截图位于 `target/language-20261029/`，最终浏览器结果为 `browser-100537/result.json`。浏览器验收仅在子进程注入诊断语言，使用独立数据库与 Edge 配置；未改变用户系统/浏览器偏好、真实剪贴板或设备授权。所有验收服务和浏览器已停止。
+
+该轮仅验证工作区，未替换安装版或生成手机安装包。Windows 安装及原生窗口语言验收已由上节 2026-10-30 记录补充；Android/iOS 真机、macOS/Linux 构建和真实跨设备验收仍未完成。
+
+## 复验入口
 
 ```text
-cargo test -p peercarry-tray i18n --locked --offline
-cargo test -p peercarry-core --test desktop_tools --locked --offline
-cargo build -p peercarry-tray -p peercarry-cli --locked --offline
+cargo test -p peercarry-core --offline -- --test-threads=1
+cargo test -p peercarry-tray --offline
+cargo build -p peercarry-cli -p peercarry-tray --offline
 cargo fmt --all -- --check
+node scripts/tests/ui-language.test.cjs
 node scripts/tests/ui-locale.test.cjs
-node scripts/tests/quick-panel.test.cjs
-node scripts/tests/transfer-center.test.cjs
-node scripts/tests/workbench.test.cjs
+node scripts/tests/desktop-settings.test.cjs
 ```
 
-当前沙箱内 `node --test` 的子进程启动受到限制，直接运行上述测试文件可完成相同断言。
-
-截图：
-
-| 中文 | 英文 |
-| --- | --- |
-| ![中文工作台](design/desktop-refresh/locale-workspace-zh.png) | ![英文工作台](design/desktop-refresh/locale-workspace-en.png) |
-| ![中文快捷面板](design/desktop-refresh/locale-quick-zh-340.png) | ![英文快捷面板](design/desktop-refresh/locale-quick-en-340.png) |
+在 `apps/mobile/` 下运行 `flutter analyze --no-pub` 与 `flutter test --no-pub`。完整前端回归为 `scripts/tests/*.test.cjs` 的全部文件逐一直接运行。

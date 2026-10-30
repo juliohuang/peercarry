@@ -14,6 +14,7 @@ pub const DEFAULT_PORT: u16 = 5199;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    pub ui: UiConfig,
     pub node: NodeConfig,
     pub network: NetworkConfig,
     pub limits: LimitsConfig,
@@ -26,6 +27,12 @@ pub struct Config {
     pub ai_token: Option<String>,
     /// Apps this machine offers for launching, by peers or locally.
     pub apps: Vec<AppEntry>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UiConfig {
+    pub language: crate::locale::LanguagePreference,
 }
 
 /// One launchable application registered on this machine.
@@ -292,6 +299,7 @@ pub struct StorageConfig {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            ui: UiConfig::default(),
             node: NodeConfig::default(),
             network: NetworkConfig::default(),
             limits: LimitsConfig::default(),

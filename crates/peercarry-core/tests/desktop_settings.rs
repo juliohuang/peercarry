@@ -165,6 +165,7 @@ unknown_setting = "keep-this"
     assert!(initial["values"].get("network.auth_token").is_none());
     assert!(initial["values"].get("ai_token").is_none());
     let expected_fields: std::collections::BTreeSet<_> = [
+        "ui.language",
         "node.name",
         "node.discoverable",
         "node.allow_remote_apply",
@@ -231,7 +232,7 @@ unknown_setting = "keep-this"
             let response = client
                 .get(format!("{base}{path_suffix}"))
                 .header(marker, "1")
-                .header("x-syncclip-token", NETWORK_TOKEN)
+                .header("x-peercarry-token", NETWORK_TOKEN)
                 .send()
                 .await
                 .unwrap();
@@ -241,7 +242,7 @@ unknown_setting = "keep-this"
         let response = client
             .post(format!("{base}{path_suffix}"))
             .header("x-test-peer", "1")
-            .header("x-syncclip-token", NETWORK_TOKEN)
+            .header("x-peercarry-token", NETWORK_TOKEN)
             .json(&json!({"revision":"synthetic"}))
             .send()
             .await
@@ -256,7 +257,7 @@ unknown_setting = "keep-this"
         let response = client
             .get(format!("{base}/v1/desktop/settings"))
             .header(header, value)
-            .header("x-syncclip-token", NETWORK_TOKEN)
+            .header("x-peercarry-token", NETWORK_TOKEN)
             .send()
             .await
             .unwrap();
@@ -267,7 +268,7 @@ unknown_setting = "keep-this"
         .get(format!("{base}/v1/desktop/settings"))
         .header("origin", &base)
         .header("origin", "https://untrusted.example")
-        .header("x-syncclip-token", NETWORK_TOKEN)
+        .header("x-peercarry-token", NETWORK_TOKEN)
         .send()
         .await
         .unwrap();
@@ -280,7 +281,7 @@ unknown_setting = "keep-this"
     assert_eq!(old_api.status(), StatusCode::UNAUTHORIZED);
     let old_api_authorized = client
         .get(format!("{base}/v1/config"))
-        .header("x-syncclip-token", NETWORK_TOKEN)
+        .header("x-peercarry-token", NETWORK_TOKEN)
         .send()
         .await
         .unwrap();
@@ -293,6 +294,9 @@ unknown_setting = "keep-this"
     let original_file = std::fs::read(&path).unwrap();
     let original_download_dir = engine.download_dir();
     for (case, invalid) in [
+        json!({"revision":revision,"changes":{"ui.language":"fr"}}),
+        json!({"revision":revision,"changes":{"ui.language":null}}),
+        json!({"revision":revision,"changes":{"ui.language":true}}),
         json!({"revision":revision,"changes":{"node.name":true}}),
         json!({"revision":revision,"changes":{"network.auth_token":"should-not-be-saved"}}),
         json!({"revision":revision,"changes":{"mobile.enabled":false}}),

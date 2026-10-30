@@ -1,4 +1,3 @@
-// Legacy x-syncclip-* wire headers are stable for compatibility with existing peers.
 //! Wire protocol shared by the daemon and its clients.
 //!
 //! Everything is plain HTTP/1.1 over the Tailscale interface. Tailscale
@@ -26,21 +25,21 @@ use crate::model::Entry;
 pub const API_PREFIX: &str = "/v1";
 
 /// Header carrying the shared secret.
-pub const TOKEN_HEADER: &str = "x-syncclip-token";
+pub const TOKEN_HEADER: &str = "x-peercarry-token";
 
 /// Real file name of a streamed file payload.
-pub const FILENAME_HEADER: &str = "x-syncclip-filename";
+pub const FILENAME_HEADER: &str = "x-peercarry-filename";
 
 /// Set on a capture response when the clipboard was already in the history,
 /// so nothing new was written.
-pub const DEDUPED_HEADER: &str = "x-syncclip-deduped";
+pub const DEDUPED_HEADER: &str = "x-peercarry-deduped";
 
 /// `1` when the streamed payload is a tar archive of a directory.
-pub const IS_DIR_HEADER: &str = "x-syncclip-is-dir";
+pub const IS_DIR_HEADER: &str = "x-peercarry-is-dir";
 
 /// Advertised protocol version. Bumped on incompatible changes so mismatched
 /// daemons can warn instead of silently misbehaving.
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HelloResponse {

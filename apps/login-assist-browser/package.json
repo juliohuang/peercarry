@@ -1,0 +1,12 @@
+{
+  "name": "peercarry-login-assist-browser-p0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-strip-types --experimental-test-isolation=none --test test/*.test.ts",
+    "build:fixture": "node build-fixture.mjs",
+    "build:extension": "node build-extension.mjs"
+  },
+  "dependencies": { "qrcode-generator": "2.0.4" },
+  "engines": { "node": ">=22.18" }
+}

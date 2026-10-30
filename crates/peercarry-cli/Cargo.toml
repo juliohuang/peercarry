@@ -11,11 +11,6 @@ description = "Command line interface for peercarry"
 name = "peercarry"
 path = "src/main.rs"
 
-# Compatibility executable for existing user hooks and scripts.
-[[bin]]
-name = "sclip"
-path = "src/main.rs"
-
 [dependencies]
 peercarry-core = { workspace = true }
 tokio = { workspace = true }

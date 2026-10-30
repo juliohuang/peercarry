@@ -290,7 +290,9 @@ fn envelope(config: &Config, revision: String, restart: Option<bool>) -> JsonVal
         // This identifies a process; it is never an access credential.
         "instance_id": process_settings().instance_id.to_string(),
         "desktop_url": desktop_url(config),
+        "language": crate::locale::details_for(config.ui.language, crate::locale::system_language()),
         "values": {
+            "ui.language": config.ui.language,
             "node.name": config.node.name,
             "node.discoverable": config.node.discoverable,
             "node.allow_remote_apply": config.node.allow_remote_apply,
@@ -384,6 +386,10 @@ fn pending_restart(config: &Config, startup: &Config) -> Result<bool, ApiError> 
             .as_object_mut()
             .ok_or_else(ApiError::storage)?
             .remove("updates");
+        value
+            .as_object_mut()
+            .ok_or_else(ApiError::storage)?
+            .remove("ui");
         value["storage"]
             .as_object_mut()
             .ok_or_else(ApiError::storage)?
@@ -479,7 +485,8 @@ fn field(key: &str) -> Option<Field> {
         | "storage.history_limit"
         | "storage.thumbnail_px"
         | "updates.check_interval_hours" => Field::Number,
-        "updates.source"
+        "ui.language"
+        | "updates.source"
         | "updates.domestic_url"
         | "updates.github_url"
         | "updates.custom_url"
@@ -1255,6 +1262,9 @@ mod tests {
             engine,
         };
         for (changes, expected) in [
+            (json!({"ui.language":"en"}), false),
+            (json!({"ui.language":"zh"}), false),
+            (json!({"ui.language":"system"}), false),
             (json!({"node.name":"Pending restart"}), true),
             (json!({"storage.download_dir":root.join("downloads")}), true),
             (json!({}), true),
@@ -1270,6 +1280,10 @@ mod tests {
                 .unwrap();
             let response = save(&state, &context, request).await.unwrap();
             assert_eq!(response["restart_recommended"], expected);
+            assert!(matches!(
+                response["values"]["ui.language"].as_str(),
+                Some("system" | "zh" | "en")
+            ));
         }
     }
 

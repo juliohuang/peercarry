@@ -16,6 +16,8 @@ use thiserror::Error;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
+pub mod handoff;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Plan {
@@ -298,6 +300,7 @@ pub struct Runner<B> {
     backend: B,
     pub dry_run: bool,
     stop: StopToken,
+    pause: handoff::PauseController,
 }
 impl<B: Backend> Runner<B> {
     pub fn new(backend: B, dry_run: bool) -> Self {
@@ -305,10 +308,14 @@ impl<B: Backend> Runner<B> {
             backend,
             dry_run,
             stop: StopToken::default(),
+            pause: handoff::PauseController::default(),
         }
     }
     pub fn stop_token(&self) -> StopToken {
         self.stop.clone()
+    }
+    pub fn pause_controller(&self) -> handoff::PauseController {
+        self.pause.clone()
     }
     pub fn run(&mut self, plan: &Plan, execute: bool) -> Result<(), AutomationError> {
         plan.validate()?;
@@ -323,11 +330,15 @@ impl<B: Backend> Runner<B> {
         if !execute || self.dry_run {
             return Ok(());
         }
-        self.backend.resolve_target(&plan.target)?;
+        {
+            let _operation = self.pause.enter(&self.stop)?;
+            self.backend.resolve_target(&plan.target)?;
+        }
         for step in &plan.steps {
             if self.stop.stopped() {
                 return Err(AutomationError::Stopped);
             }
+            let _operation = self.pause.enter(&self.stop)?;
             let started = Instant::now();
             let result = if self.dry_run {
                 Ok(())
@@ -515,6 +526,34 @@ mod tests {
             ),
             Err(AutomationError::Stopped)
         ));
+    }
+
+    #[test]
+    fn pause_barrier_covers_target_resolution_and_all_runner_steps() {
+        let mut runner = Runner::new(Recording::default(), false);
+        let lease = runner
+            .pause_controller()
+            .pause(Duration::from_secs(1))
+            .unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            runner
+                .run(
+                    &plan(Action::Focus {
+                        selector: selector(),
+                    }),
+                    true,
+                )
+                .unwrap();
+            tx.send(runner.backend.calls).unwrap();
+        });
+        assert!(rx.recv_timeout(Duration::from_millis(30)).is_err());
+        lease.resume().unwrap();
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+            vec!["target", "focus"]
+        );
+        thread.join().unwrap();
     }
     #[test]
     fn example_json_is_valid() {

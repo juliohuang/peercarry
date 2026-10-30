@@ -82,6 +82,7 @@ enum UserEvent {
     Write(Box<ClipboardWrite>),
     CloseQuickPanel,
     OpenQuickPanel,
+    LanguageChanged,
 }
 
 enum Command {
@@ -104,6 +105,7 @@ enum Command {
 }
 
 struct AppState {
+    language: i18n::Lang,
     update_busy: bool,
     entries: Vec<Entry>,
     /// Launchable apps per online peer.
@@ -123,6 +125,7 @@ struct AppState {
 impl Default for AppState {
     fn default() -> Self {
         Self {
+            language: i18n::Lang::current(),
             update_busy: false,
             entries: Vec::new(),
             peer_apps: Vec::new(),
@@ -201,7 +204,9 @@ fn show_quick_panel(
         Some((window, webview)) => {
             window.set_visible(true);
             window.set_focus();
-            let _ = webview.evaluate_script("window.quickPanelRefresh?.()");
+            let _ = webview.evaluate_script(
+                "window.PeerCarryLocale?.checkForChange?.(); window.quickPanelRefresh?.()",
+            );
         }
         None => match quick_panel::build(target, port, proxy) {
             Ok(ui) => *quick_ui = Some(ui),
@@ -234,6 +239,9 @@ fn build_app_window(
                 return;
             }
             match request.body().as_str() {
+                "language-changed" => {
+                    let _ = proxy.send_event(UserEvent::LanguageChanged);
+                }
                 "pick-files" => {
                     let _ = proxy.send_event(UserEvent::PickFiles(false));
                 }
@@ -457,7 +465,7 @@ fn pin_item_id(entry: &Entry) -> String {
 fn render_signature(state: &AppState) -> String {
     use std::fmt::Write as _;
     let mut sig = String::with_capacity(512);
-    let _ = write!(sig, "s:{}", state.status);
+    let _ = write!(sig, "l:{}|s:{}", state.language.code(), state.status);
     let _ = write!(sig, "|updating:{}", state.update_busy);
     for e in &state.entries {
         let _ = write!(
@@ -499,6 +507,11 @@ fn popup_menu_open() -> bool {
 }
 
 fn render(tray: &TrayIcon, state: &mut AppState) -> Result<()> {
+    let language = i18n::Lang::current();
+    if state.language != language {
+        state.language = language;
+        state.status = i18n::ui().ready.to_string();
+    }
     let signature = render_signature(state);
     if state.rendered.as_deref() == Some(signature.as_str()) {
         state.dirty = false;
@@ -1388,6 +1401,14 @@ fn main() -> Result<()> {
             Event::UserEvent(UserEvent::Entries(entries)) => {
                 state.entries = entries;
                 render_or_retry(&tray, &mut state, control_flow);
+            }
+
+            Event::UserEvent(UserEvent::LanguageChanged) => {
+                render_or_retry(&tray, &mut state, control_flow);
+                for ui in [&app_ui, &quick_ui].into_iter().flatten() {
+                    let _ =
+                        ui.1.evaluate_script("window.PeerCarryLocale?.checkForChange?.()");
+                }
             }
 
             Event::UserEvent(UserEvent::UpdateFinished) => {

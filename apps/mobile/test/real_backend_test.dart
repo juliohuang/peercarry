@@ -8,7 +8,7 @@ void main() {
   final connection = Platform.environment['PEERCARRY_MOBILE_TEST_CONNECTION'];
   test('real Rust service accepts text and multi-chunk file', () async {
     final config = jsonDecode(await File(connection!).readAsString()) as Map;
-    final client = SyncClient(
+    final client = PeerCarryClient(
         baseUrl: config['url'] as String,
         deviceId: config['device_id'] as String,
         deviceToken: config['device_token'] as String);

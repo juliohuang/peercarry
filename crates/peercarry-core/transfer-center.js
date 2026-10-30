@@ -307,7 +307,7 @@
       status(action === 'delete' ? t('已移除任务记录，文件保留。', 'Record removed; downloaded files are kept.') : t('操作已保存。', 'Action saved.'));
       await refresh();
     } catch (error) { status(`${t('操作失败：', 'Action failed: ')}${userError(error)}`, true); }
-    finally { pendingActions.delete(job.id); render(); }
+    finally { pendingActions.delete(job.id); render(); root.PeerCarryLocale?.retry?.(); }
   }
   async function enqueue(body) {
     if (submitting) return;
@@ -320,7 +320,7 @@
       await refresh();
     } catch (error) {
       status(`${t('创建任务失败：', 'Could not create transfer: ')}${userError(error)}`, true);
-    } finally { submitting = false; controls(); }
+    } finally { submitting = false; controls(); root.PeerCarryLocale?.retry?.(); }
   }
 
   setText('transfer-title', t('传输中心', 'Transfers'));
@@ -357,6 +357,7 @@
     enqueue(body);
   };
   root.PeerCarryTransfers = {
+    isBusy() { return submitting || pendingActions.size > 0; },
     setVisible(value) {
       visible = value;
       clearInterval(timer);

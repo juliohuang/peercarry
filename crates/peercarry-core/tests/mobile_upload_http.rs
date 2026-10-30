@@ -57,11 +57,11 @@ async fn authenticated_mobile_upload_reaches_existing_download_protocol() {
     let headers = |id: &str, token: &str| {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(
-            "x-syncclip-token",
+            "x-peercarry-token",
             "synthetic-global-test-token".parse().unwrap(),
         );
-        headers.insert("x-syncclip-device-id", id.parse().unwrap());
-        headers.insert("x-syncclip-device-token", token.parse().unwrap());
+        headers.insert("x-peercarry-device-id", id.parse().unwrap());
+        headers.insert("x-peercarry-device-token", token.parse().unwrap());
         headers
     };
     let owner = headers("phone-a", &"a".repeat(32));
@@ -70,6 +70,32 @@ async fn authenticated_mobile_upload_reaches_existing_download_protocol() {
     let metadata = json!({"request_id":uuid::Uuid::new_v4().to_string(),"filename":"phone.txt",
         "size":payload.len(),"sha256":hex::encode(Sha256::digest(payload))});
     let endpoint = format!("{url}/v1/uploads");
+    // Neither the old global token nor the old mobile credentials authenticate.
+    for global_header in ["x-syncclip-token", "x-peercarry-token"] {
+        assert_eq!(
+            client
+                .post(&endpoint)
+                .header(global_header, "synthetic-global-test-token")
+                .header("x-syncclip-device-id", "phone-a")
+                .header("x-syncclip-device-token", "a".repeat(32))
+                .json(&metadata)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    let hello: Value = client
+        .get(format!("{url}/v1/hello"))
+        .headers(owner.clone())
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(hello["protocol"], 2);
     assert_eq!(
         client
             .post(&endpoint)

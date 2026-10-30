@@ -330,7 +330,7 @@ fn token_ok(state: &AppState, headers: &HeaderMap) -> bool {
         .filter(|token| token.len() >= 32)
         .is_some_and(|expected| {
             headers
-                .get("x-syncclip-ai-token")
+                .get("x-peercarry-ai-token")
                 .and_then(|v| v.to_str().ok())
                 == Some(expected)
         });
@@ -350,7 +350,7 @@ async fn post_event(
     if !loopback(Some(&addr))
         || reject_origin(&headers)
         || headers
-            .get("x-syncclip-ai-hook")
+            .get("x-peercarry-ai-hook")
             .and_then(|v| v.to_str().ok())
             != Some("1")
     {

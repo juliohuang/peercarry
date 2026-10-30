@@ -62,6 +62,8 @@
       timer: null,
       busy: false,
       composing: false,
+      preview: false,
+      taskDraft: '',
       visible: false,
       syncTimer: null,
       sync: {
@@ -149,6 +151,7 @@
       const panel = el('section','notebook-panel notebook-list');
       panel.append(el('div', 'notebook-list-header'));
       panel.append(el('div', 'notebook-list-items'));
+      panel.append(el('div', 'notebook-list-footer'));
       const syncCard = el('section', 'notebook-sync-card');
       syncCard.addEventListener('focusout', () => {
         const view = doc.defaultView;
@@ -464,6 +467,7 @@
       }
     }
     function canRefreshRemoteList() {
+      if (state.taskDraft.trim()) return false;
       if (state.dirty || state.saving || state.composing || state.conflict || state.section === 'clipboard') return false;
       const editor = root.querySelector('.notebook-editor');
       const active = doc.activeElement;
@@ -482,6 +486,18 @@
     }
     function headerAction(label, fn) {
       return button(label, fn);
+    }
+    function itemDate(value) {
+      const date = new Date(value);
+      if (!Number.isFinite(date.getTime())) return '';
+      return date.toLocaleString(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+    function updateSelection() {
+      for (const row of root.querySelectorAll('.notebook-item')) {
+        const selected = row.dataset.id === state.item?.id;
+        row.classList.toggle('active', selected);
+        row.setAttribute('aria-current', String(selected));
+      }
     }
     async function loadList(options) {
       options = options || {};
@@ -562,9 +578,10 @@
       const trashLabel = state.trash ? text('Notes', '笔记') : text('Recently Deleted', '最近删除');
       let search = head.querySelector('.notebook-search');
       if (!search) {
+        const heading = el('div', 'notebook-list-heading');
+        heading.append(el('h2', 'notebook-list-title'), el('span', 'notebook-list-count'));
         search = el('input', 'notebook-search');
         search.type = 'search';
-        search.placeholder = text('Search', '搜索');
         search.value = state.search;
         search.addEventListener('input', () => {
           state.search = search.value;
@@ -580,21 +597,38 @@
           await loadList({ preserveEditor: true });
         });
         trashButton.className = 'notebook-trash-toggle';
-        head.append(search, headerAction(text('New', '新建'), createItem), trashButton);
+        const create = headerAction(text('New', '新建'), createItem);
+        create.className = 'notebook-new primary';
+        create.setAttribute('aria-label', text('New', '新建'));
+        create.title = text('New', '新建');
+        head.append(heading, create, search);
+        panel.querySelector('.notebook-list-footer').append(trashButton);
       }
-      head.querySelector('.notebook-trash-toggle').textContent = trashLabel;
+      const todo = state.section === 'todo';
+      head.querySelector('.notebook-list-title').textContent = state.trash
+        ? text('Recently Deleted', '最近删除') : todo ? text('My lists', '我的清单') : text('All notes', '全部笔记');
+      head.querySelector('.notebook-list-count').textContent = String(state.items.length);
+      search.placeholder = todo ? text('Search lists…', '搜索清单…') : text('Search notes…', '搜索笔记…');
+      search.setAttribute('aria-label', search.placeholder);
+      panel.querySelector('.notebook-trash-toggle').textContent = trashLabel;
+      let wasPinned = false;
       for (const item of state.items) {
+        if (item.pinned && !wasPinned && !state.trash) list.append(el('div', 'notebook-group-label', text('Pinned', '置顶')));
+        wasPinned = item.pinned;
         const row = el('article', 'notebook-item');
         row.dataset.id = item.id;
         const open = button(titleOf(item), async () => {
           if (!(await flush())) return;
           await selectItem(item.id);
         });
-        row.append(
-          open,
-          el('p', '', item.preview || ''),
-          el('small', '', item.trashed ? text('In Recently Deleted', '已回收') : ''),
-        );
+        open.className = 'notebook-item-open';
+        open.title = titleOf(item);
+        row.append(open);
+        if (item.pinned) row.append(el('span', 'notebook-pinned-marker', '◆'));
+        const completed = Number.isFinite(item.completed_count) ? item.completed_count : (item.tasks || []).filter(task => task.done).length;
+        const total = Number.isFinite(item.task_count) ? item.task_count : (item.tasks || []).length;
+        row.append(el('p', '', todo ? text(`${completed} / ${total} completed`, `${completed} / ${total} 已完成`) : item.preview || ''));
+        row.append(el('small', 'notebook-item-date', item.trashed ? text('In Recently Deleted', '已回收') : itemDate(item.updated_at)));
         if (Number(item.conflict_count) > 0) {
           row.append(el('small', 'notebook-conflict-badge', text(
             `${item.conflict_count} versions`,
@@ -604,15 +638,20 @@
         if (item.trashed) {
           row.append(button(text('Restore', '恢复'), () => restoreItem(item)));
         } else {
+          const actions = el('details', 'notebook-item-more');
+          const summary = el('summary', '', '•••');
+          summary.setAttribute('aria-label', text('Actions for ', '操作：') + titleOf(item));
+          const menu = el('div', 'notebook-menu');
+          actions.append(summary, menu);
           const pinLabel = item.pinned ? text('Unpin', '取消置顶') : text('Pin', '置顶');
-          row.append(button(pinLabel, async () => {
+          menu.append(button(pinLabel, async () => {
             if (!(await selectItem(item.id))) return;
             state.item.pinned = !state.item.pinned;
             changed();
             await flush();
             await loadList();
           }));
-          row.append(button(text('Delete', '回收'), async () => {
+          menu.append(button(text('Delete', '回收'), async () => {
             if (!(await flush())) return;
             try {
               const fresh = await request('/v1/notebook/' + encodeURIComponent(item.id));
@@ -627,9 +666,15 @@
               await showError(error, item.id);
             }
           }));
+          row.append(actions);
         }
         list.append(row);
       }
+      if (!state.items.length) list.append(el('p', 'notebook-list-empty', state.search
+        ? text('No matches. Try another search.', '没有匹配内容，试试其他关键词。')
+        : state.trash ? text('Recently Deleted is empty.', '最近删除为空。')
+          : todo ? text('Create a list to get started.', '新建清单，记录接下来要做的事。') : text('Create your first note.', '新建笔记，记下此刻的想法。')));
+      updateSelection();
       if (state.item) {
         const summary = state.items.find(item => item.id === state.item.id);
         if (summary) {
@@ -690,6 +735,7 @@
           return;
         }
         state.item = item;
+        state.preview = false;
         remember(section, item.id);
         showEditor(true);
         state.dirty = false;
@@ -764,6 +810,14 @@
     async function flush() {
       clearTimeout(state.timer);
       if (state.composing) return false;
+      // Leaving a list also keeps an unfinished composer entry.
+      if (state.item?.kind === 'todo' && state.taskDraft.trim() && !state.conflict) {
+        state.item.tasks.push({ id: id(), text: limitUtf8(state.taskDraft.trim(), 4096), done: false });
+        state.taskDraft = '';
+        state.version++;
+        state.dirty = true;
+        renderEditor();
+      }
       if (!state.dirty) return !state.conflict;
       while (state.saving) await new Promise(resolve => setTimeout(resolve, 0));
       if (state.dirty) await saveLoop();
@@ -1006,8 +1060,14 @@
     }
     function renderEditor() {
       const editor = root.querySelector('.notebook-editor'); editor.replaceChildren();
+      updateSelection();
       if (!state.item || state.section === 'clipboard') {
-        editor.append(el('p', '', text('Select or create a note.', '选择或新建笔记。')));
+        const empty = el('div', 'notebook-editor-empty');
+        empty.append(el('span', 'notebook-empty-mark', state.section === 'todo' ? '✓' : '✎'),
+          el('h2', '', state.section === 'todo' ? text('One step at a time', '把重要的事，一件件完成') : text('Room for your ideas', '让记录更简单')),
+          el('p', '', text('Select an item or create something new.', '从左侧选择内容，或开始一条新记录。')),
+          button(text('Start writing', '开始记录'), createItem, 'primary'));
+        editor.append(empty);
         return;
       }
 
@@ -1021,68 +1081,129 @@
       const title = el('input', 'notebook-title-input');
       title.value = state.item.title || '';
       title.placeholder = text('Title', '标题');
+      title.setAttribute('aria-label', text('Title', '标题'));
       title.addEventListener('input', () => {
         title.value = limitCodepoints(title.value, 200);
         state.item.title = title.value;
         changed();
       });
-      header.append(title);
+      const heading = el('div', 'notebook-editor-heading');
+      heading.append(title, el('small', 'notebook-editor-date', itemDate(state.item.updated_at)));
+      header.append(heading);
       if (state.item.kind === 'markdown') {
-        const toggle = button(text('Preview', '预览'), () => {
+        const modes = el('div', 'notebook-modes');
+        modes.setAttribute('role', 'group');
+        modes.setAttribute('aria-label', text('Note view', '笔记视图'));
+        const changeMode = previewMode => {
           const input = root.querySelector('.notebook-markdown-input');
           const preview = root.querySelector('.notebook-preview');
-          const showingPreview = !preview.hidden;
-          input.hidden = !showingPreview;
-          preview.hidden = showingPreview;
-          toggle.textContent = showingPreview ? text('Preview', '预览') : text('Edit', '编辑');
-          toggle.setAttribute('aria-pressed', String(!showingPreview));
-          if (!showingPreview) renderPreview();
+          state.preview = previewMode;
+          input.hidden = previewMode;
+          preview.hidden = !previewMode;
+          edit.setAttribute('aria-pressed', String(!previewMode));
+          view.setAttribute('aria-pressed', String(previewMode));
+          if (previewMode) renderPreview();
           else input.focus?.();
-        });
-        toggle.setAttribute('aria-pressed', 'false');
-        header.append(toggle);
-      }
-      if (state.item.kind === 'todo') {
-        header.append(
-          button(text('Add task', '添加任务'), addTask),
-          button(text('Save', '保存'), flush, 'notebook-save'),
-        );
+        };
+        const edit = button(text('Edit', '编辑'), () => changeMode(false));
+        const view = button(text('Preview', '预览'), () => changeMode(true));
+        edit.setAttribute('aria-pressed', String(!state.preview));
+        view.setAttribute('aria-pressed', String(state.preview));
+        modes.append(edit, view);
+        header.append(modes);
       }
       const more = el('details', 'notebook-more');
-      more.append(el('summary', '', text('More', '更多')),
+      const moreLabel = el('summary', '', '•••');
+      moreLabel.setAttribute('aria-label', text('More actions', '更多操作'));
+      const menu = el('div', 'notebook-menu');
+      menu.append(button(text('Save', '保存'), flush, 'notebook-save'),
         button(text('Export .md', '导出 .md'), exportMarkdown),
         button(text('Send to device', '发送到设备'), share));
+      more.append(moreLabel, menu);
       header.append(more);
       editor.append(header);
       if (state.item.kind === 'markdown') {
-        const bar = el('div', 'notebook-toolbar');
         const input = el('textarea', 'notebook-markdown-input');
         input.value = state.item.markdown || '';
+        input.setAttribute('aria-label', text('Markdown content', 'Markdown 正文'));
+        input.placeholder = text('Write in Markdown…', '使用 Markdown 记录想法…');
+        input.hidden = state.preview;
         input.addEventListener('input', () => {
           state.item.markdown = input.value;
           changed();
         });
         const preview = el('div', 'notebook-preview');
-        preview.hidden = true;
-        bar.append(button(text('Save', '保存'), flush, 'notebook-save'));
-        editor.append(bar, input, preview);
+        preview.hidden = !state.preview;
+        editor.append(input, preview);
         renderPreview();
       } else {
+        const body = el('div', 'notebook-todo-body');
+        const progressLabel = el('p', 'notebook-task-progress-label');
+        const progress = el('progress', 'notebook-task-progress');
+        progress.setAttribute('aria-label', text('Completed tasks', '已完成任务'));
+        body.append(progressLabel, progress);
+        const composer = el('div', 'notebook-task-composer');
+        const draft = el('input', 'notebook-task-composer-input');
+        draft.value = state.taskDraft;
+        draft.placeholder = text('Add a task, press Enter to continue', '添加待办，按 Enter 继续');
+        draft.setAttribute('aria-label', text('New task', '新待办'));
+        draft.addEventListener('input', () => {
+          draft.value = limitUtf8(draft.value, 4096);
+          state.taskDraft = draft.value;
+          state.version++;
+          status(text('Press Enter to add; leaving this list also saves it.', '按 Enter 添加，离开清单时也会保存。'));
+        });
+        const commit = () => {
+          const value = draft.value.trim();
+          state.taskDraft = '';
+          addTask(value, Boolean(value));
+        };
+        draft.addEventListener('keydown', event => {
+          if (event.key !== 'Enter' || event.repeat || event.isComposing || event.keyCode === 229 || state.composing || !draft.value.trim()) return;
+          event.preventDefault();
+          commit();
+        });
+        composer.append(button(text('Add task', '添加任务'), commit, 'notebook-add-task'), draft);
+        body.append(composer);
+        const pendingTitle = el('h3', 'notebook-task-group-title', text('To do', '待完成'));
         const tasks = el('div', 'notebook-tasks');
+        const completed = el('details', 'notebook-completed');
+        completed.open = true;
+        const completedLabel = el('summary', 'notebook-completed-label');
+        const doneTasks = el('div', 'notebook-done-tasks');
+        completed.append(completedLabel, doneTasks);
+        body.append(pendingTitle, tasks, completed);
+        const updateProgress = () => {
+          const all = state.item.tasks || [], done = all.filter(task => task.done).length;
+          progressLabel.textContent = text(`${done} / ${all.length} completed`, `${done} / ${all.length} 已完成`);
+          progress.max = Math.max(1, all.length);
+          progress.value = done;
+          completedLabel.textContent = text(`Completed ${done}`, `已完成 ${done}`);
+          completed.hidden = done === 0;
+          pendingTitle.hidden = all.every(task => task.done);
+        };
         (state.item.tasks || []).forEach((task, index) => {
-          const row = el('label', 'notebook-task-row');
+          const row = el('div', 'notebook-task-row');
+          row.classList.toggle('done', !!task.done);
           const checkbox = el('input');
           checkbox.type = 'checkbox';
           checkbox.checked = !!task.done;
+          checkbox.setAttribute('aria-label', text('Mark task complete: ', '标记任务完成：') + task.text);
           checkbox.addEventListener('change', () => {
             task.done = checkbox.checked;
+            row.classList.toggle('done', task.done);
+            (task.done ? doneTasks : tasks).append(row);
+            updateProgress();
             changed();
           });
           const field = el('input', 'notebook-task-input');
           field.value = task.text;
+          field.dataset.taskId = task.id;
+          field.setAttribute('aria-label', text('Task text', '待办内容'));
           field.addEventListener('input', () => {
             field.value = limitUtf8(field.value, 4096);
             task.text = field.value;
+            checkbox.setAttribute('aria-label', text('Mark task complete: ', '标记任务完成：') + task.text);
             changed();
           });
           field.addEventListener('keydown', event => {
@@ -1099,9 +1220,10 @@
               renderEditor();
             }),
           );
-          tasks.append(row);
+          (task.done ? doneTasks : tasks).append(row);
         });
-        editor.append(tasks);
+        updateProgress();
+        editor.append(body);
       }
       const saveStatus = el('div', 'notebook-status');
       saveStatus.setAttribute('role', 'status');
@@ -1109,6 +1231,7 @@
       const retry = button(text('Retry save', '重试保存'), flush, 'notebook-retry');
       retry.hidden = true;
       editor.append(saveStatus, retry);
+      if (!state.dirty && !state.conflict) status(text('Saved', '已保存'));
       if (state.conflictKind === 'revision') renderConflict();
       else if (state.conflictKind === 'sync') renderSyncConflict();
       else if (Number(state.item.conflict_count) > 0) {
@@ -1124,13 +1247,14 @@
       }
       renderConflictVersions();
     }
-    function addTask() {
+    function addTask(value, focusComposer) {
       if (state.composing || !state.item || state.item.kind !== 'todo') return;
-      state.item.tasks.push({ id: id(), text: '', done: false });
+      const taskId = id();
+      state.item.tasks.push({ id: taskId, text: typeof value === 'string' ? limitUtf8(value, 4096) : '', done: false });
       changed();
       renderEditor();
-      const fields = root.querySelectorAll('.notebook-task-input');
-      fields[fields.length - 1]?.focus?.();
+      if (focusComposer) root.querySelector('.notebook-task-composer-input')?.focus?.();
+      else Array.from(root.querySelectorAll('.notebook-task-input')).find(field => field.dataset.taskId === taskId)?.focus?.();
     }
     function appendInline(parent, value) {
       const pattern = /(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|\*[^*\n]+\*|_[^_\n]+_|\[[^\]]+\]\([^)]+\))/g;
@@ -1516,13 +1640,18 @@
       setVisible,
       load,
       whenIdle: async () => {
-        if (state.dirty && !state.conflict) await flush();
+        if ((state.dirty || state.taskDraft.trim()) && !state.conflict) await flush();
         while (state.saving) await new Promise(resolve => setTimeout(resolve, 0));
         return !state.dirty && !state.conflict;
       },
     };
 
     doc.addEventListener('keydown', event => {
+      if (event.key === 'Escape') {
+        for (const menu of [...root.querySelectorAll('.notebook-more'), ...root.querySelectorAll('.notebook-item-more')]) {
+          if (menu.open) { menu.open = false; menu.querySelector('summary')?.focus?.(); }
+        }
+      }
       const saveKey = (event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey &&
         event.key?.toLowerCase() === 's';
       const composing = event.isComposing || event.keyCode === 229;
@@ -1534,6 +1663,11 @@
       if (root.contains(event.target)) {
         state.composing = true;
         clearTimeout(state.timer);
+      }
+    });
+    doc.addEventListener('click', event => {
+      for (const menu of [...root.querySelectorAll('.notebook-more'), ...root.querySelectorAll('.notebook-item-more')]) {
+        if (!menu.contains(event.target)) menu.open = false;
       }
     });
     doc.addEventListener('compositionend', event => {
